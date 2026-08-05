@@ -10,7 +10,7 @@ export const metadata = { title: "Triaje — IENN Gastos App" };
 export const dynamic = "force-dynamic";
 
 /** Cuántos pendientes se traen por lote. */
-const TAMANO_LOTE = 100;
+const TAMANO_LOTE = 500;
 
 const moneda = new Intl.NumberFormat("es-VE", {
   minimumFractionDigits: 2,
@@ -24,7 +24,7 @@ export default async function TriajePage() {
     supabase
       .from("v_gastos_enriquecidos")
       .select(
-        "id, fecha_documento, factura, proveedor, proveedor_codigo, texto_referencia, grupo_clase_coste, monto_real, ceco_codigo, oi_codigo_raw, codigo_oi, hunting_zone, fase, motivo, detalle, nota",
+        "id, fecha_documento, factura, proveedor, proveedor_codigo, texto_referencia, grupo_clase_coste, monto_real, ceco_codigo, ceco_codigo_raw, oi_codigo_raw, codigo_oi, hunting_zone, fase, motivo, detalle, nota",
       )
       .eq("estado_revision", "pendiente")
       .order("fecha_documento", { ascending: false })
@@ -98,8 +98,6 @@ export default async function TriajePage() {
     detalle: filasValores.filter((v) => v.campo === "detalle").map((v) => v.valor),
   };
 
-  const sinTaxonomia = gastos.filter((g) => !g.fase || !g.motivo || !g.detalle).length;
-
   return (
     <main className="mx-auto w-full max-w-[110rem] px-6 py-10">
       <header>
@@ -125,14 +123,6 @@ export default async function TriajePage() {
             </dt>
             <dd className="mt-0.5 text-2xl font-semibold tabular-nums text-slate-900">
               {moneda.format(montoPendiente)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">
-              Sin taxonomía completa
-            </dt>
-            <dd className="mt-0.5 text-2xl font-semibold tabular-nums text-slate-900">
-              {sinTaxonomia}
             </dd>
           </div>
         </dl>

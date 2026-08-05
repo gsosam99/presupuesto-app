@@ -31,6 +31,18 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ error: "El número de factura es obligatorio" }, { status: 400 });
     }
 
+    // La Hunting Zone se deduce de la Orden Interna: la maestra es la verdad,
+    // no lo que venga del formulario.
+    let idHz = cuerpo.id_hunting_zone || null;
+    if (cuerpo.id_oi) {
+      const { data: oi } = await supabase
+        .from("ordenes_internas")
+        .select("id_hunting_zone")
+        .eq("id", cuerpo.id_oi)
+        .maybeSingle();
+      if (oi?.id_hunting_zone) idHz = oi.id_hunting_zone as string;
+    }
+
     const { data, error } = await supabase
       .from("facturas_preregistradas")
       .insert({
@@ -39,7 +51,7 @@ export async function POST(request: Request): Promise<Response> {
         texto_referencia: cuerpo.texto_referencia?.trim() || null,
         fecha_factura: cuerpo.fecha_factura || null,
         id_oi: cuerpo.id_oi || null,
-        id_hunting_zone: cuerpo.id_hunting_zone || null,
+        id_hunting_zone: idHz,
         fase: cuerpo.fase?.trim() || null,
         motivo: cuerpo.motivo?.trim() || null,
         detalle: cuerpo.detalle?.trim() || null,

@@ -17,6 +17,7 @@ export async function POST(request: Request): Promise<Response> {
 
     const formData = await request.formData();
     const archivo = formData.get("archivo");
+    const forzar = formData.get("forzar") === "true";
 
     if (!(archivo instanceof File)) {
       return Response.json({ error: "No se recibió ningún archivo" }, { status: 400 });
@@ -27,6 +28,25 @@ export async function POST(request: Request): Promise<Response> {
 
     const buffer = Buffer.from(await archivo.arrayBuffer());
     const hash = createHash("sha256").update(buffer).digest("hex");
+
+    // Verificación de duplicados: el mismo archivo no se reprocesa salvo que
+    // el usuario lo pida explícitamente.
+    if (!forzar) {
+      const { data: previa } = await supabase
+        .from("cargas")
+        .select("created_at")
+        .eq("hash_archivo", hash)
+        .eq("estado", "completada")
+        .limit(1)
+        .maybeSingle();
+
+      if (previa) {
+        return Response.json(
+          { yaCargado: { archivo: archivo.name, cargadoEl: previa.created_at } },
+          { status: 409 },
+        );
+      }
+    }
 
     const resumen = await importarFacturasExcel(supabase, buffer, {
       nombreArchivo: archivo.name,

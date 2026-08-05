@@ -577,6 +577,116 @@ group by fp.id, fp.numero_factura, fp.numero_normalizado, fp.proveedor_codigo,
 
 alter view public.v_conciliacion_facturas set (security_invoker = on);
 
+
+-- 7.5 Años fiscales con movimiento (evita traer miles de filas para listar 4).
+create or replace view public.v_anios_fiscales as
+select
+  g.fy,
+  public.fy_etiqueta(g.fy)    as etiqueta,
+  count(*)                    as gastos,
+  round(sum(g.monto_real), 2) as monto
+from public.gastos g
+group by g.fy
+order by g.fy desc;
+
+alter view public.v_anios_fiscales set (security_invoker = on);
+
+-- ----------------------------------------------------------------------------
+-- 7.6 Flujo D — Rolling Forecast
+-- ----------------------------------------------------------------------------
+-- Reglas del PRD (inquebrantables):
+--   1. Meses cerrados : 100% Gasto Real. Si Real > (Plan + Extra) se registra
+--      la desviación, pero NO se descuenta del plan de los meses futuros.
+--   2. Mes actual     : 100% Gasto Real hasta la fecha de corte.
+--   3. Meses futuros  : 100% de (Plan + Extra).
+--
+-- Es función y no vista porque la fecha de corte es un parámetro: permite
+-- proyectar "como si fuera" cualquier fecha y hace la lógica verificable.
+create or replace function public.rolling_forecast(
+  p_fy smallint,
+  p_corte date default current_date
+)
+returns table (
+  id_hunting_zone  uuid,
+  hunting_zone     text,
+  mes              smallint,
+  posicion_fy      smallint,
+  tipo_mes         text,
+  monto_real       numeric,
+  monto_plan       numeric,
+  monto_extra      numeric,
+  presupuesto      numeric,
+  proyeccion       numeric,
+  desviacion       numeric
+)
+language sql
+stable
+set search_path = ''
+as $fn$
+with meses as (
+  select
+    i::smallint as posicion_fy,
+    (extract(month from (make_date(p_fy, 10, 1) + ((i - 1) || ' month')::interval)))::smallint as mes,
+    (make_date(p_fy, 10, 1) + ((i - 1) || ' month')::interval)::date as inicio_mes
+  from generate_series(1, 12) as i
+),
+zonas as (
+  select id, nombre from public.hunting_zones where activo
+  union all
+  -- Los huérfanos en triaje son dinero real gastado: sin esta fila el
+  -- forecast reportaría menos de lo ejecutado.
+  select null::uuid, 'Sin asignar'
+),
+grilla as (
+  select z.id as id_hunting_zone, z.nombre as hunting_zone,
+         m.mes, m.posicion_fy, m.inicio_mes
+  from zonas z cross join meses m
+),
+real_hz as (
+  select g.id_hunting_zone, g.mes, sum(g.monto_real) as real
+  from public.gastos g
+  where g.fy = p_fy and g.estado_revision <> 'excluido'
+  group by 1, 2
+),
+plan_hz as (
+  select v.id_hunting_zone, v.mes,
+         sum(coalesce(v.monto_plan, 0))                  as plan,
+         sum(coalesce(v.monto_suplemento_extra_plan, 0)) as extra
+  from public.v_presupuesto_oi_mes v
+  where v.fy = p_fy
+  group by 1, 2
+)
+select
+  g.id_hunting_zone,
+  g.hunting_zone,
+  g.mes,
+  g.posicion_fy,
+  case
+    when g.inicio_mes <  date_trunc('month', p_corte)::date then 'cerrado'
+    when g.inicio_mes =  date_trunc('month', p_corte)::date then 'actual'
+    else 'futuro'
+  end as tipo_mes,
+  coalesce(r.real, 0)                        as monto_real,
+  coalesce(p.plan, 0)                        as monto_plan,
+  coalesce(p.extra, 0)                       as monto_extra,
+  coalesce(p.plan, 0) + coalesce(p.extra, 0) as presupuesto,
+  case
+    when g.inicio_mes <= date_trunc('month', p_corte)::date then coalesce(r.real, 0)
+    else greatest(coalesce(p.plan, 0) + coalesce(p.extra, 0), coalesce(r.real, 0))
+  end                                        as proyeccion,
+  case
+    when g.inicio_mes <= date_trunc('month', p_corte)::date
+      then coalesce(p.plan, 0) + coalesce(p.extra, 0) - coalesce(r.real, 0)
+    else null
+  end                                        as desviacion
+from grilla g
+left join real_hz r
+  on r.id_hunting_zone is not distinct from g.id_hunting_zone and r.mes = g.mes
+left join plan_hz p
+  on p.id_hunting_zone is not distinct from g.id_hunting_zone and p.mes = g.mes
+order by g.hunting_zone, g.posicion_fy;
+$fn$;
+
 -- ----------------------------------------------------------------------------
 -- 8. Row Level Security
 -- ----------------------------------------------------------------------------

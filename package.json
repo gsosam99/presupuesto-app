@@ -8,11 +8,13 @@
     "start": "next start",
     "lint": "eslint",
     "importar:consolidado": "NODE_OPTIONS=--experimental-websocket node --env-file=.env.local node_modules/.bin/tsx scripts/importar_consolidado.ts",
-    "verificar:sap": "NODE_OPTIONS=--experimental-websocket node --env-file=.env.local node_modules/.bin/tsx scripts/verificar_parser_sap.ts"
+    "verificar:sap": "NODE_OPTIONS=--experimental-websocket node --env-file=.env.local node_modules/.bin/tsx scripts/verificar_parser_sap.ts",
+    "recuperar:taxonomia": "NODE_OPTIONS=--experimental-websocket node --env-file=.env.local node_modules/.bin/tsx scripts/recuperar_taxonomia_parcial.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.109.0",
+    "chart.js": "^4.5.1",
     "exceljs": "^4.4.0",
     "next": "16.3.0",
     "node-html-parser": "^9.0.1",

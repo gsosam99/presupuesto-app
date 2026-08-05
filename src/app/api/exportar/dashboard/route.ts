@@ -1,0 +1,57 @@
+import { obtenerDatosDashboard } from "@/lib/dashboard/datos";
+import {
+  generarHtmlDashboard,
+  nombreArchivoExport,
+  type DatosExport,
+} from "@/lib/export/dashboardHtml";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+/** Flujo E — descarga del dashboard como HTML interactivo y offline. */
+export async function GET(): Promise<Response> {
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) return Response.json({ error: "No autenticado" }, { status: 401 });
+
+    const datos = await obtenerDatosDashboard(supabase);
+
+    // El original consume los registros como arreglos posicionales.
+    const paraExport: DatosExport = {
+      anios: datos.anios,
+      currentFY: datos.currentFY,
+      fyStartMonth: 10,
+      fases: datos.fases,
+      hzs: datos.hzs,
+      monthlyCurrent: datos.monthlyCurrent,
+      asof: datos.asof,
+      records: datos.records.map((r) => [
+        r.af,
+        r.fase,
+        r.hz,
+        r.motivo,
+        r.detalle,
+        r.monto,
+        r.n,
+      ]),
+    };
+
+    const html = await generarHtmlDashboard(paraExport);
+
+    return new Response(html, {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${nombreArchivoExport(datos.asof)}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (error) {
+    console.error("[GET /api/exportar/dashboard]", error);
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Error interno" },
+      { status: 500 },
+    );
+  }
+}

@@ -30,19 +30,33 @@ export function SubidaPresupuesto() {
   const [subiendo, setSubiendo] = useState(false);
   const [resumen, setResumen] = useState<Resumen | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [yaCargado, setYaCargado] = useState<{ archivo: string; cargadoEl: string } | null>(null);
+  const [ultimo, setUltimo] = useState<File | null>(null);
 
-  async function subir(archivo: File) {
+  async function subir(archivo: File, forzar = false) {
+    setUltimo(archivo);
     setSubiendo(true);
     setError(null);
     setResumen(null);
+    setYaCargado(null);
 
     try {
       const formData = new FormData();
       formData.append("archivo", archivo);
       formData.append("tipo", tipo);
+      if (forzar) formData.append("forzar", "true");
 
       const res = await fetch("/api/presupuestos", { method: "POST", body: formData });
-      const json = (await res.json()) as { resumen?: Resumen; error?: string };
+      const json = (await res.json()) as {
+        resumen?: Resumen;
+        error?: string;
+        yaCargado?: { archivo: string; cargadoEl: string };
+      };
+
+      if (res.status === 409 && json.yaCargado) {
+        setYaCargado(json.yaCargado);
+        return;
+      }
 
       if (!res.ok || !json.resumen) {
         setError(json.error ?? "No se pudo procesar el archivo.");
@@ -115,6 +129,25 @@ export function SubidaPresupuesto() {
         <p role="alert" className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {error}
         </p>
+      )}
+
+      {yaCargado && (
+        <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p>
+            <span className="font-medium">{yaCargado.archivo}</span> ya se cargó el{" "}
+            {new Date(yaCargado.cargadoEl).toLocaleString("es-VE", { dateStyle: "short" })}.
+            Volver a procesarlo duplicaría las líneas presupuestarias.
+          </p>
+          <Button
+            type="button"
+            variante="secundario"
+            className="mt-2"
+            disabled={subiendo || !ultimo}
+            onClick={() => ultimo && void subir(ultimo, true)}
+          >
+            Cargar igual
+          </Button>
+        </div>
       )}
 
       {resumen && (

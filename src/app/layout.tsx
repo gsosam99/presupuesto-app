@@ -1,9 +1,17 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
+import { Geist, Inter } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
   variable: "--font-sans",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+// El dashboard aprobado está diseñado con Inter. Se sirve self-hosted porque
+// la CSP no permite cargar fuentes desde dominios externos.
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
   display: "swap",
 });
@@ -16,7 +24,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="es" className={`${geistSans.variable} h-full antialiased`}>
+    <html lang="es" className={`${geistSans.variable} ${inter.variable} h-full antialiased`}>
       {/*
         suppressHydrationWarning: extensiones del navegador (Grammarly y
         similares) inyectan atributos en <body> antes de que React hidrate

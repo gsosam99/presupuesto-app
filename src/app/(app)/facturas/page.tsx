@@ -1,7 +1,7 @@
 import { CargaMasivaFacturas } from "@/components/facturas/CargaMasivaFacturas";
 import {
   FormularioFactura,
-  type OpcionSelect,
+  type OpcionOi,
   type Sugerencias,
 } from "@/components/facturas/FormularioFactura";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -33,7 +33,7 @@ export default async function FacturasPage() {
   const [ois, hzs, tax, conciliacion] = await Promise.all([
     supabase
       .from("ordenes_internas")
-      .select("id, codigo_oi, nombre")
+      .select("id, codigo_oi, nombre, id_hunting_zone")
       .eq("activo", true)
       .order("codigo_oi"),
     supabase
@@ -51,14 +51,18 @@ export default async function FacturasPage() {
       .limit(50),
   ]);
 
-  const ordenesInternas: OpcionSelect[] = (ois.data ?? []).map((o) => ({
-    id: o.id as string,
-    etiqueta: `${o.codigo_oi as string}${o.nombre ? ` — ${o.nombre as string}` : ""}`,
-  }));
+  const hzPorId = new Map(
+    (hzs.data ?? []).map((h) => [h.id as string, h.nombre as string]),
+  );
 
-  const huntingZones: OpcionSelect[] = (hzs.data ?? []).map((h) => ({
-    id: h.id as string,
-    etiqueta: h.nombre as string,
+  const ordenesInternas: OpcionOi[] = (ois.data ?? []).map((o) => ({
+    id: o.id as string,
+    codigo: o.codigo_oi as string,
+    nombre: (o.nombre as string | null) ?? null,
+    idHuntingZone: (o.id_hunting_zone as string | null) ?? null,
+    huntingZone: o.id_hunting_zone
+      ? (hzPorId.get(o.id_hunting_zone as string) ?? null)
+      : null,
   }));
 
   const valores = (tax.data ?? []) as unknown as Array<{ campo: string; valor: string }>;
@@ -83,11 +87,7 @@ export default async function FacturasPage() {
       </header>
 
       <section className="mt-8">
-        <FormularioFactura
-          ordenesInternas={ordenesInternas}
-          huntingZones={huntingZones}
-          sugerencias={sugerencias}
-        />
+        <FormularioFactura ordenesInternas={ordenesInternas} sugerencias={sugerencias} />
       </section>
 
       <section className="mt-6">

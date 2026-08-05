@@ -1,19 +1,199 @@
 @import "tailwindcss";
 
+/*
+ * Identidad gráfica única para toda la app: los tokens son los del dashboard
+ * aprobado por el equipo, así que las demás pantallas heredan exactamente la
+ * misma paleta, tipografía y tratamiento de tarjetas y tablas.
+ */
+:root {
+  --navy: #0c3a57;
+  --ink: #12324d;
+  --ink-soft: #31465a;
+  --blue: #2e75b6;
+  --cyan: #2fb9ce;
+  --gold: #e0a93e;
+  --teal: #1e8a8a;
+  --red: #9e2b33;
+  --mauve: #a97c86;
+  --muted: #61707c;
+  --line: #e4e9ed;
+  --line-soft: #eef2f5;
+  --canvas: #f5f7f9;
+  --card: #ffffff;
+  --ok: #1e8a8a;
+  --warn: #e0a93e;
+  --bad: #9e2b33;
+  --r: 10px;
+}
+
 @theme {
-  /* Paleta institucional IENN */
-  --color-brand: #0f172a;
-  --color-brand-soft: #1e293b;
+  --color-brand: #0c3a57;
+  --color-brand-soft: #2e75b6;
 }
 
 /*
- * Colores explícitos: la app no implementa dark mode todavía, así que
- * prefers-color-scheme no debe alterar los componentes de negocio.
+ * color-scheme: light es obligatorio, no cosmético: los popups nativos
+ * (el desplegable de <datalist>, el calendario de <input type=date>) los
+ * dibuja el navegador con el esquema declarado. Sin esta línea, en un sistema
+ * en modo oscuro el desplegable sale con texto claro sobre fondo claro y las
+ * opciones quedan ilegibles.
  */
 html,
 body {
-  background-color: #f8fafc; /* slate-50 */
-  color: #0f172a; /* slate-900 */
-  font-family: var(--font-sans);
+  color-scheme: light;
+  background-color: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-inter), "Inter", system-ui, sans-serif;
+  font-feature-settings: "tnum" 1;
   -webkit-font-smoothing: antialiased;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select,
+textarea {
+  color-scheme: light;
+}
+
+/*
+ * Con una altura fija, WebKit ancla el contenido de <input type="date"> arriba
+ * en vez de centrarlo. Volviéndolo flex, el editor de fecha se alinea al medio.
+ */
+input[type="date"] {
+  display: flex;
+  align-items: center;
+}
+
+/* ---------------------------------------------------------------------------
+ * Primitivas compartidas — mismo lenguaje visual que el dashboard.
+ * No se usa @apply: rompe el tree-shaking de Tailwind v4.
+ * ------------------------------------------------------------------------ */
+
+.ui-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.ui-title {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--navy);
+  margin: 4px 0 0;
+}
+
+.ui-lead {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-top: 8px;
+  max-width: 62ch;
+}
+
+.ui-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+
+.ui-section-title {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* Tablas con el mismo tratamiento que la tabla dinámica del dashboard */
+.ui-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.ui-table thead th {
+  text-align: left;
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 700;
+  padding: 10px 12px;
+  border-bottom: 1.5px solid var(--line);
+  white-space: nowrap;
+}
+.ui-table tbody td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink-soft);
+}
+.ui-table tbody tr:hover td {
+  background: var(--line-soft);
+}
+.ui-table .r {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* KPI compacto reutilizable */
+.ui-kpi {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 16px 18px;
+  position: relative;
+}
+.ui-kpi::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 18px;
+  width: 28px;
+  height: 2.5px;
+  background: var(--blue);
+  border-radius: 0 0 2px 2px;
+}
+.ui-kpi .kl {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 700;
+}
+.ui-kpi .kv {
+  font-weight: 800;
+  font-size: 26px;
+  color: var(--ink);
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------------
+ * Flujo E — modo presentación e impresión
+ * ------------------------------------------------------------------------ */
+
+/* Modo presentación: la app queda en solo lectura, sin navegación. */
+html[data-presentacion="1"] .app-nav {
+  display: none;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  html,
+  body {
+    background: #fff;
+  }
+  /* El PDF ejecutivo sale por secciones: cada tarjeta entera en su página. */
+  .dash .card,
+  .dash .bench,
+  .dash .kpi,
+  .ui-card {
+    break-inside: avoid;
+  }
+  .dash .wrap {
+    max-width: none;
+    padding: 0;
+  }
 }

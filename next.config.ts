@@ -9,6 +9,15 @@ const scriptSrc = esDesarrollo
   : "script-src 'self' 'unsafe-inline'";
 
 const nextConfig: NextConfig = {
+  // El exportador del Flujo E lee la plantilla y Chart.js desde disco en
+  // runtime; sin esto no viajan al bundle serverless de Vercel.
+  outputFileTracingIncludes: {
+    "/api/exportar/dashboard": [
+      "./src/lib/export/plantilla-dashboard.html",
+      "./node_modules/chart.js/dist/chart.umd.js",
+    ],
+  },
+
   async headers() {
     return [
       {

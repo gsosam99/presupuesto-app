@@ -1,6 +1,6 @@
 import { createBrowserClient } from "@supabase/ssr";
 
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/env";
+import { supabaseAnonKey, supabaseUrl } from "@/lib/env";
 import type { Database } from "@/types/supabase";
 
 /**
@@ -9,5 +9,5 @@ import type { Database } from "@/types/supabase";
  *   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
  */
 export function createSupabaseBrowserClient() {
-  return createBrowserClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY);
+  return createBrowserClient<Database>(supabaseUrl(), supabaseAnonKey());
 }

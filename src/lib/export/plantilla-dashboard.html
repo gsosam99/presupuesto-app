@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seguimiento Presupuestario · IENN — Empresas Polar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script>/*__CHARTJS__*/</script>
+<style>
+:root{
+  --navy:#0C3A57; --ink:#12324D; --ink-soft:#31465A;
+  --blue:#2E75B6; --cyan:#2FB9CE; --gold:#E0A93E; --teal:#1E8A8A; --red:#9E2B33; --mauve:#A97C86;
+  --muted:#61707C; --line:#E4E9ED; --line-soft:#EEF2F5;
+  --canvas:#F5F7F9; --card:#FFFFFF;
+  --ok:#1E8A8A; --warn:#E0A93E; --bad:#9E2B33;
+  --r:10px; --gap:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--canvas);font-feature-settings:"tnum" 1;-webkit-font-smoothing:antialiased;font-size:14px}
+body.locked{overflow:hidden}
+.wrap{max-width:1240px;margin:0 auto;padding:20px 20px 56px}
+h1,h2,h3{margin:0;letter-spacing:-.01em}
+.num{font-variant-numeric:tabular-nums}
+a{cursor:pointer}
+
+/* Header */
+.topbar{background:var(--navy);color:#fff;border-radius:var(--r);padding:20px 26px;position:relative}
+.topbar::after{content:"";position:absolute;left:26px;right:26px;bottom:0;height:2px;background:linear-gradient(90deg,var(--blue),var(--cyan) 55%,var(--gold))}
+.topbar-row{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center}
+.eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#8FB4C9;font-weight:700}
+.topbar h1{font-size:24px;font-weight:800;margin-top:6px;color:#fff}
+.asof{font-size:11px;color:#8FB4C9;white-space:nowrap}
+.asof b{color:#fff;font-weight:600}
+
+/* Filters */
+.filters{display:flex;gap:22px;flex-wrap:wrap;margin-top:18px;align-items:flex-end}
+.fg{display:flex;flex-direction:column;gap:5px;position:relative}
+.fg>label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#8FB4C9;font-weight:700}
+.ms-btn{appearance:none;background:rgba(255,255,255,.07);color:#EAF2F7;border:1px solid rgba(143,180,201,.3);border-radius:7px;padding:9px 30px 9px 12px;font-family:inherit;font-size:13px;font-weight:500;min-width:190px;cursor:pointer;text-align:left;position:relative}
+.ms-btn::after{content:"▾";position:absolute;right:11px;color:#8FB4C9;font-size:11px}
+.ms-panel{display:none;position:absolute;top:100%;left:0;margin-top:6px;z-index:40;width:280px;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 12px 32px rgba(12,58,87,.18);padding:10px}
+.ms-panel.open{display:block}
+.ms-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:2px 4px 9px;border-bottom:1px solid var(--line-soft);margin-bottom:8px}
+.ms-actions a{font-size:12px;color:var(--blue);font-weight:600}
+.ms-actions a:hover{text-decoration:underline}
+.ms-excl{font-size:11.5px;color:var(--ink-soft);display:flex;align-items:center;gap:5px;font-weight:500;cursor:pointer;margin-left:auto}
+.ms-list{max-height:240px;overflow-y:auto}
+.ms-item{display:flex;align-items:center;gap:8px;padding:6px;border-radius:6px;font-size:13px;color:var(--ink);cursor:pointer}
+.ms-item:hover{background:var(--line-soft)}
+.ms-item input{accent-color:var(--blue);width:15px;height:15px}
+.ms-item .amt{margin-left:auto;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.btn-reset{background:transparent;border:1px solid rgba(143,180,201,.3);color:#B9CEDC;border-radius:7px;padding:9px 13px;font-family:inherit;font-size:12px;font-weight:500;cursor:pointer;height:37px}
+.btn-reset:hover{background:rgba(143,180,201,.12)}
+
+/* Range slider */
+.range{min-width:250px}
+.range-labels{font-size:13px;font-weight:600;color:#B9CEDC;margin-bottom:9px}
+.range-labels b{color:#fff;font-weight:700}
+.range-slider{position:relative;height:22px}
+.range-track{position:absolute;top:9px;left:2px;right:2px;height:4px;background:rgba(143,180,201,.3);border-radius:3px}
+.range-fill{position:absolute;top:9px;height:4px;background:var(--cyan);border-radius:3px}
+.range-slider input[type=range]{position:absolute;top:0;left:0;width:100%;height:22px;margin:0;background:none;pointer-events:none;-webkit-appearance:none;appearance:none}
+.range-slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;pointer-events:all;width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--cyan);cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.35)}
+.range-slider input[type=range]::-moz-range-thumb{pointer-events:all;width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--cyan);cursor:pointer}
+#yr-from{z-index:2}
+
+/* Tabs */
+.tabs{display:flex;gap:2px;margin:20px 0 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tab{background:none;border:none;font-family:inherit;font-weight:600;font-size:14px;color:var(--muted);padding:11px 16px;cursor:pointer;position:relative}
+.tab:hover{color:var(--ink)}
+.tab.active{color:var(--navy)}
+.tab.active::after{content:"";position:absolute;left:12px;right:12px;bottom:-1px;height:2.5px;background:var(--blue)}
+.view{display:none}.view.active{display:block;animation:f .3s ease}
+@keyframes f{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+
+/* Cards */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px}
+.card-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px}
+.card-h h3{font-size:13.5px;font-weight:700;color:var(--ink)}
+.card-h .note{font-size:11.5px;color:var(--muted)}
+.eyebrow-s{font-size:10px;letter-spacing:.16em;text-transform:uppercase;font-weight:700;margin-bottom:3px}
+
+/* Benchmark */
+.bench{background:#fff;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-bottom:var(--gap)}
+.bench-top{background:var(--navy);color:#fff;padding:16px 22px;display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px}
+.bench-top h2{font-size:16px;font-weight:800}
+.bench-top .lead{color:#B9CEDC;font-size:12px;margin-top:3px;max-width:540px;line-height:1.45;font-weight:400}
+.bench-scope{font-size:11px;color:#EAF2F7;background:rgba(255,255,255,.1);border:1px solid rgba(143,180,201,.35);padding:5px 11px;border-radius:6px;font-weight:600;white-space:nowrap}
+.bench-body{display:grid;grid-template-columns:260px 1fr}
+.bench-inputs{padding:20px 22px;border-right:1px solid var(--line);background:#FAFBFC}
+.il{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px;display:block}
+.il:not(:first-child){margin-top:16px}
+.inp{position:relative}
+.inp span{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;font-weight:600}
+.inp input{width:100%;padding:10px 12px 10px 25px;border:1px solid var(--line);border-radius:7px;font-family:inherit;font-size:15px;font-weight:600;color:var(--ink)}
+.inp input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(46,117,182,.13)}
+.bench-hint{font-size:11px;color:var(--muted);margin-top:15px;line-height:1.5;border-top:1px solid var(--line-soft);padding-top:11px}
+.meters{padding:20px 24px;display:flex;flex-direction:column;gap:20px;justify-content:center}
+.meter .mh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
+.meter .mt{font-weight:700;font-size:13px}
+.meter .mt small{font-weight:500;color:var(--muted);font-size:11px;display:block;margin-top:2px}
+.meter .mv{font-weight:800;font-size:20px;color:var(--ink)}
+.meter .mv .chip{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:5px;margin-left:8px;vertical-align:middle}
+.chip.ok{background:rgba(30,138,138,.13);color:var(--ok)}.chip.warn{background:rgba(224,169,62,.16);color:#9a7420}.chip.bad{background:rgba(158,43,51,.12);color:var(--bad)}
+.track{position:relative;height:24px;background:#EEF2F5;border-radius:6px;overflow:hidden}
+.band{position:absolute;top:0;bottom:0;background:rgba(30,138,138,.12);border-left:2px dashed rgba(30,138,138,.55);border-right:2px dashed rgba(30,138,138,.55)}
+.fill{position:absolute;top:0;bottom:0;left:0;border-radius:6px 0 0 6px;transition:width .5s cubic-bezier(.2,.7,.2,1)}
+.marker{position:absolute;top:-3px;bottom:-3px;width:3px;background:var(--ink);border-radius:2px;box-shadow:0 0 0 2px #fff;transition:left .5s cubic-bezier(.2,.7,.2,1)}
+.scale{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:5px}
+
+/* KPI */
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);margin-bottom:10px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;position:relative}
+.kpi::before{content:"";position:absolute;top:0;left:18px;width:28px;height:2.5px;background:var(--blue);border-radius:0 0 2px 2px}
+.kpi .kl{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-top:4px}
+.kpi .kv{font-weight:800;font-size:30px;color:var(--ink);margin-top:7px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pill{font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px}
+.pill.up{background:rgba(158,43,51,.1);color:var(--bad)}
+.pill.down{background:rgba(30,138,138,.13);color:var(--ok)}
+.kpi .kx{font-size:11.5px;color:var(--muted);margin-top:5px}
+.kpi .kx .proj{color:var(--blue);font-weight:700}
+.note-nomina{font-size:11.5px;color:var(--muted);margin:0 0 var(--gap);font-style:italic}
+.note-nomina b{color:var(--ink-soft);font-style:normal}
+
+/* segmented control */
+.seg-bar{display:flex;align-items:center;gap:12px;margin-bottom:var(--gap);flex-wrap:wrap}
+.seg-label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.seg{display:inline-flex;background:#fff;border:1px solid var(--line);border-radius:8px;padding:3px}
+.seg button{border:none;background:none;font-family:inherit;font-weight:600;font-size:12.5px;color:var(--muted);padding:7px 16px;border-radius:6px;cursor:pointer}
+.seg button.on{background:var(--navy);color:#fff}
+
+/* charts */
+.grid-2{display:grid;grid-template-columns:1.55fr 1fr;gap:var(--gap);margin-bottom:var(--gap)}
+.grid-1{margin-bottom:var(--gap)}
+.chart-box{position:relative;height:340px}.chart-box.tall{height:360px}
+
+/* motivo table */
+.btn-toggle{background:#fff;border:1px solid var(--line);color:var(--blue);font-family:inherit;font-weight:600;font-size:11.5px;padding:6px 12px;border-radius:6px;cursor:pointer}
+.btn-toggle:hover{background:var(--line-soft)}
+.mtable{width:100%;border-collapse:collapse;font-size:13px}
+.mtable thead th{text-align:left;font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1.5px solid var(--line)}
+.mtable thead th.r{text-align:right}
+.mrow{cursor:pointer}.mrow:hover{background:var(--line-soft)}
+.mrow td{padding:11px 12px;border-bottom:1px solid var(--line-soft);font-weight:600}
+.mrow td.r{text-align:right;font-variant-numeric:tabular-nums}
+.caret{display:inline-block;width:14px;color:var(--blue);font-size:10px;transition:transform .2s}
+.mrow.open .caret{transform:rotate(90deg)}
+.bar-mini{height:5px;border-radius:3px;background:var(--blue);margin-top:5px;opacity:.6}
+.drow td{padding:7px 12px 7px 40px;border-bottom:1px solid var(--line-soft);font-size:12px;color:var(--ink-soft);background:#FAFBFC;position:relative}
+.drow td:first-child::before{content:"";position:absolute;left:24px;top:0;bottom:0;width:2px;background:var(--cyan)}
+.drow td.r{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.drow.hidden{display:none}
+
+/* HZ cards */
+.hz-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--gap)}
+.hz-card{display:flex;flex-direction:column}
+.hz-head{display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.hz-name{font-weight:700;font-size:14px;color:var(--navy)}
+.hz-total{font-weight:800;font-size:15px;color:var(--ink)}
+.hz-sub{font-size:10.5px;color:var(--muted)}
+.hz-body{margin-top:14px;flex:1}
+.hz-detail-btn{margin-top:12px;align-self:flex-start;background:#fff;border:1px solid var(--line);color:var(--blue);font-family:inherit;font-weight:600;font-size:12px;padding:7px 13px;border-radius:7px;cursor:pointer}
+.hz-detail-btn:hover{background:var(--line-soft);border-color:var(--blue)}
+.mbar{margin-bottom:10px}
+.mbar .mb-h{display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px}
+.mbar .mb-n{font-weight:600;color:var(--ink)}
+.mbar .mb-v{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:600}
+.mbar .mb-track{height:7px;background:#EEF2F5;border-radius:4px;overflow:hidden}
+.mbar .mb-fill{height:100%;border-radius:4px}
+
+/* Pivot */
+.pivot-wrap{background:#fff;border:1px solid var(--line);border-radius:var(--r);overflow-x:auto}
+.pivot{width:100%;border-collapse:collapse;font-size:12.5px;min-width:660px}
+.pivot thead th{position:sticky;top:0;background:#fff;text-align:left;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:12px;border-bottom:1.5px solid var(--line);z-index:1}
+.pivot th.r,.pivot td.r{text-align:right}
+.pivot th.tot,.pivot td.tot{border-left:1px solid var(--line)}
+.pivot td{padding:8px 12px;border-bottom:1px solid var(--line-soft);font-variant-numeric:tabular-nums;color:var(--ink-soft)}
+.pivot .rl{font-weight:600;white-space:nowrap}
+.pivot .pvcaret{display:inline-block;width:14px;color:var(--blue);font-size:10px;transition:transform .2s}
+.pivot .lvl0 td{background:#F1F5F8}
+.pivot .lvl0 .rl{cursor:pointer;font-weight:700;color:var(--navy);padding-left:12px}
+.pivot .lvl1 .rl{cursor:pointer;font-weight:600;color:var(--ink);padding-left:32px}
+.pivot .lvl1 .pvcaret{color:var(--cyan)}
+.pivot .lvl2 .rl{color:var(--ink-soft);font-weight:500;padding-left:56px}
+.pivot .pv-row:hover td{background:var(--line-soft)}
+.pivot .z{color:#C4CDD4}
+.pivot .pv-total td{padding:12px;border-top:2px solid var(--line);font-weight:800;color:var(--navy);background:#fff}
+.pivot .pv-total .rl{padding-left:12px}
+
+/* Modal */
+.modal-ov{position:fixed;inset:0;background:rgba(12,58,87,.5);backdrop-filter:blur(2px);z-index:100;display:none;align-items:flex-start;justify-content:center;padding:5vh 16px}
+.modal-ov.open{display:flex;animation:f .2s ease}
+.modal{background:#fff;border-radius:12px;width:100%;max-width:680px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(12,58,87,.35);overflow:hidden}
+.modal-head{background:var(--navy);color:#fff;padding:16px 20px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.modal-head .mh-t{font-weight:800;font-size:16px}
+.modal-head .mh-s{font-size:11.5px;color:#B9CEDC;margin-top:3px}
+.modal-x{background:rgba(255,255,255,.12);border:none;color:#fff;width:30px;height:30px;min-width:30px;border-radius:7px;cursor:pointer;font-size:18px;line-height:1}
+.modal-x:hover{background:rgba(255,255,255,.22)}
+.modal-tools{display:flex;justify-content:space-between;align-items:center;padding:10px 20px;border-bottom:1px solid var(--line);gap:10px}
+.modal-tools .mt-info{font-size:11.5px;color:var(--muted)}
+.modal-body{overflow-y:auto;padding:2px 20px 16px}
+.pvt{width:100%;border-collapse:collapse;font-size:13px}
+.pvt thead th{position:sticky;top:0;background:#fff;text-align:left;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:11px 10px;border-bottom:1.5px solid var(--line);z-index:1}
+.pvt th.r,.pvt td.r{text-align:right}
+.pvt .pm{cursor:pointer}.pvt .pm:hover td{background:var(--line-soft)}
+.pvt .pm td{padding:10px;border-bottom:1px solid var(--line-soft);font-weight:700;color:var(--ink)}
+.pvt .pm td.r{font-variant-numeric:tabular-nums}
+.pvt .pcaret{display:inline-block;width:14px;color:var(--blue);font-size:10px;transition:transform .2s}
+.pvt .pm.open .pcaret{transform:rotate(90deg)}
+.pvt .pd td{padding:7px 10px 7px 34px;border-bottom:1px solid var(--line-soft);font-size:12px;color:var(--ink-soft);background:#FAFBFC;position:relative}
+.pvt .pd td:first-child::before{content:"";position:absolute;left:20px;top:0;bottom:0;width:2px;background:var(--cyan)}
+.pvt .pd td.r{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.pvt .pd.hidden{display:none}
+.pvt .ptot td{padding:12px 10px;border-top:2px solid var(--line);font-weight:800;color:var(--navy);background:#fff}
+.pvt .ptot td.r{text-align:right;font-variant-numeric:tabular-nums}
+
+.empty{padding:44px;text-align:center;color:var(--muted);font-size:14px}
+.foot{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;font-size:11px;color:var(--muted)}
+.foot b{color:var(--ink-soft)}
+
+@media(max-width:920px){
+  .bench-body{grid-template-columns:1fr}.bench-inputs{border-right:none;border-bottom:1px solid var(--line)}
+  .kpis{grid-template-columns:1fr}.grid-2{grid-template-columns:1fr}.hz-grid{grid-template-columns:1fr}
+}
+@media print{body{background:#fff}.btn-reset,.tabs{display:none}.view{display:block!important}.card,.bench,.kpi{break-inside:avoid}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="topbar">
+    <div class="topbar-row">
+      <div>
+        <div class="eyebrow">Innovación, Estrategia y Nuevos Negocios · Empresas Polar</div>
+        <h1>Seguimiento Presupuestario del Área</h1>
+      </div>
+      <div class="asof">Corte: <b id="asof">—</b></div>
+    </div>
+    <div class="filters">
+      <div class="fg range">
+        <label>Período (años fiscales)</label>
+        <div class="range-labels"><b id="yr-from-lbl">—</b> &nbsp;—&nbsp; <b id="yr-to-lbl">—</b></div>
+        <div class="range-slider">
+          <div class="range-track"></div><div class="range-fill" id="range-fill"></div>
+          <input type="range" id="yr-from" min="0" max="3" step="1" value="0">
+          <input type="range" id="yr-to" min="0" max="3" step="1" value="3">
+        </div>
+      </div>
+      <div class="fg">
+        <label>Hunting Zone</label>
+        <button class="ms-btn" id="ms-hz-btn" onclick="toggleMs(event)">Todas las zonas</button>
+        <div class="ms-panel" id="ms-hz-panel">
+          <div class="ms-actions">
+            <a onclick="hzAll(true)">Todas</a><a onclick="hzAll(false)">Ninguna</a>
+            <label class="ms-excl"><input type="checkbox" id="hz-excl" onchange="hzExclude(this.checked)"> Excluir no asignados / N/A</label>
+          </div>
+          <div class="ms-list" id="hz-list"></div>
+        </div>
+      </div>
+      <button class="btn-reset" onclick="resetFilters()">Limpiar</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-v="resumen">Resumen ejecutivo</button>
+    <button class="tab" data-v="motivo">Por motivo</button>
+    <button class="tab" data-v="hz">Por Hunting Zone</button>
+    <button class="tab" data-v="pivot">Tabla dinámica</button>
+  </nav>
+
+  <!-- RESUMEN -->
+  <section class="view active" id="v-resumen">
+    <div class="bench">
+      <div class="bench-top">
+        <div>
+          <div class="eyebrow-s" style="color:#8FB4C9">Indicador de área</div>
+          <h2>Benchmark de inversión en innovación</h2>
+          <div class="lead">Gasto del área frente a las referencias de empresas con innovación disruptiva. Ingrese el revenue y el plan de inversión para calibrar.</div>
+        </div>
+        <div class="bench-scope" id="bench-scope">Alcance: todos los años</div>
+      </div>
+      <div class="bench-body">
+        <div class="bench-inputs">
+          <label class="il">Revenue de EP (USD)</label>
+          <div class="inp"><span>$</span><input type="text" id="in-rev" inputmode="numeric" placeholder="0"></div>
+          <label class="il">Plan de inversión EP (USD)</label>
+          <div class="inp"><span>$</span><input type="text" id="in-plan" inputmode="numeric" placeholder="0"></div>
+          <div class="bench-hint">La banda marca el rango de referencia sano. Para una lectura anual limpia, seleccione un solo año en el período.</div>
+        </div>
+        <div class="meters">
+          <div class="meter" id="m-rev">
+            <div class="mh"><div class="mt">Gasto vs. Revenue<small>Referencia: 3 %–5 % del revenue</small></div><div class="mv"><span class="pctval">—</span><span class="chip"></span></div></div>
+            <div class="track"><div class="band"></div><div class="fill"></div><div class="marker"></div></div>
+            <div class="scale"><span>0%</span><span>3%</span><span>5%</span><span>8%+</span></div>
+          </div>
+          <div class="meter" id="m-plan">
+            <div class="mh"><div class="mt">Gasto vs. Plan de inversión EP<small>Referencia: hasta 10 % del plan</small></div><div class="mv"><span class="pctval">—</span><span class="chip"></span></div></div>
+            <div class="track"><div class="band"></div><div class="fill"></div><div class="marker"></div></div>
+            <div class="scale"><span>0%</span><span>10%</span><span>20%</span><span>30%+</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+    <p class="note-nomina"><b>Nota:</b> el reporte no incluye los gastos de Nómina.</p>
+
+    <div class="seg-bar">
+      <span class="seg-label">Segmentar por</span>
+      <div class="seg" id="seg-ctl">
+        <button data-s="fase" class="on">Fase</button>
+        <button data-s="hz">Hunting Zone</button>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-h"><h3>Evolución del gasto por año fiscal</h3><span class="note" id="ev-note"></span></div>
+        <div class="chart-box tall"><canvas id="c-anio"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3 id="comp-title">Composición del gasto</h3><span class="note">Acumulado del período</span></div>
+        <div class="chart-box tall"><canvas id="c-comp"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MOTIVO -->
+  <section class="view" id="v-motivo">
+    <div class="card grid-1">
+      <div class="card-h"><h3>Gasto por motivo</h3><span class="note">Top motivos del alcance filtrado</span></div>
+      <div class="chart-box tall"><canvas id="c-motivo"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3>Detalle por motivo</h3><button class="btn-toggle" id="mot-toggle" onclick="toggleAllMot()">Expandir todo</button></div>
+      <table class="mtable">
+        <thead><tr><th>Motivo / Hunting Zone</th><th class="r">Gasto (USD)</th><th class="r">% part.</th></tr></thead>
+        <tbody id="motivo-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- HZ -->
+  <section class="view" id="v-hz">
+    <div class="card-h" style="margin-bottom:14px">
+      <div><h3 style="font-size:14px">Motivos principales de gasto por Hunting Zone</h3><span class="note">Top drivers por zona · abre el detalle (tabla dinámica) en cada tarjeta</span></div>
+    </div>
+    <div class="hz-grid" id="hz-grid"></div>
+  </section>
+
+  <!-- PIVOT -->
+  <section class="view" id="v-pivot">
+    <div class="card-h" style="margin-bottom:14px">
+      <div><h3 style="font-size:14px">Tabla dinámica</h3><span class="note">Filas: HZ → Motivo → Detalle · Columnas: años fiscales · Subtotales por grupo</span></div>
+      <button class="btn-toggle" id="pv-toggle" onclick="togglePivotAll()">Expandir todo</button>
+    </div>
+    <div class="pivot-wrap"><table class="pivot" id="pivot-table"></table></div>
+  </section>
+
+  <!-- Modal -->
+  <div class="modal-ov" id="hz-modal" onclick="if(event.target===this)closeHzModal()">
+    <div class="modal">
+      <div class="modal-head">
+        <div><div class="mh-t" id="hzm-title"></div><div class="mh-s" id="hzm-sub"></div></div>
+        <button class="modal-x" onclick="closeHzModal()" aria-label="Cerrar">×</button>
+      </div>
+      <div class="modal-tools">
+        <span class="mt-info" id="hzm-info"></span>
+        <button class="btn-toggle" id="hzm-toggle" onclick="toggleAllPvt()">Colapsar todo</button>
+      </div>
+      <div class="modal-body">
+        <table class="pvt">
+          <thead><tr><th>Motivo / Detalle</th><th class="r">Gasto (USD)</th><th class="r">% del HZ</th></tr></thead>
+          <tbody id="pvt-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>Fuente: <b>Gastos_IENN_Consolidado</b> · 22/23–25/26 · USD · No incluye Nómina.</span>
+    <span>Empresas Polar · IENN · Dashboard de seguimiento presupuestario</span>
+  </div>
+</div>
+
+<script>
+const RAW = /*__DATOS__*/;
+const PALETTE=['#2E75B6','#2FB9CE','#E0A93E','#1E8A8A','#9E2B33','#A97C86','#0C3A57','#6E8FA3','#C6832F','#4B6B7E','#7C9AAD','#B0563E'];
+const FASE_COLORS={'Ideación':'#2FB9CE','Incubación':'#2E75B6','Escalamiento':'#1E8A8A','Continuidad Operativa':'#E0A93E','(sin asignar)':'#B7C1C9'};
+const HZ_COLORS={};RAW.hzs.forEach((h,i)=>HZ_COLORS[h]=NA_test(h)?'#B7C1C9':PALETTE[i%PALETTE.length]);
+function NA_test(s){return /sin asignar|no aplica/i.test(s);}
+const NA_RE=/sin asignar|no aplica/i;
+const state={yrFrom:0,yrTo:RAW.anios.length-1,hzSel:null,seg:'fase'};
+const charts={};
+let motAllOpen=false, pvtAllOpen=true, pivotExpanded=new Set();
+const fmtUSD=n=>'$'+Math.round(n).toLocaleString('en-US');
+const fmtAbbr=n=>n>=1e6?'$'+(n/1e6).toFixed(2)+'M':n>=1e3?'$'+(n/1e3).toFixed(0)+'K':'$'+Math.round(n);
+const pct=(a,b)=>b>0?(a/b*100):0;
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const rec=r=>({af:r[0],fase:r[1],hz:r[2],motivo:r[3],detalle:r[4],monto:r[5],n:r[6]});
+
+const selYears=()=>RAW.anios.slice(state.yrFrom,state.yrTo+1);
+const hzOnly=()=>RAW.records.map(rec).filter(r=>state.hzSel===null||state.hzSel.has(r.hz));
+const filtered=()=>{const ys=new Set(selYears());return hzOnly().filter(r=>ys.has(r.af));};
+function sumBy(rows,k){const m={};rows.forEach(r=>{m[r[k]]=m[r[k]]||{monto:0,n:0};m[r[k]].monto+=r.monto;m[r[k]].n+=r.n;});return m;}
+const total=rows=>rows.reduce((s,r)=>s+r.monto,0);
+function monthsElapsed(){const mm=RAW.monthlyCurrent||{};const keys=Object.keys(mm).sort();if(!keys.length)return 12;const vals=keys.map(k=>mm[k]).slice().sort((a,b)=>a-b);const med=vals[Math.floor(vals.length/2)]||1;let end=keys.length;while(end>0&&mm[keys[end-1]]<0.2*med)end--;return Math.max(1,Math.min(12,end));}
+const projShown=()=>selYears().includes(RAW.currentFY);
+
+/* boot */
+function buildHzList(){const by=sumBy(RAW.records.map(rec),'hz');document.getElementById('hz-list').innerHTML=RAW.hzs.map(h=>`<label class="ms-item"><input type="checkbox" value="${esc(h)}" checked onchange="hzChanged()"><span>${h}</span><span class="amt">${fmtAbbr(by[h]?by[h].monto:0)}</span></label>`).join('');}
+function boot(){
+  buildHzList();buildSlider();
+  document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');document.getElementById('v-'+t.dataset.v).classList.add('active');render();
+  });
+  document.querySelectorAll('#seg-ctl button').forEach(b=>b.onclick=()=>{
+    state.seg=b.dataset.s;document.querySelectorAll('#seg-ctl button').forEach(x=>x.classList.toggle('on',x===b));render();
+  });
+  ['in-rev','in-plan'].forEach(id=>{const el=document.getElementById(id);el.addEventListener('input',()=>{fmtMoney(el);renderBenchmark();});});
+  document.addEventListener('click',e=>{const p=document.getElementById('ms-hz-panel');if(p.classList.contains('open')&&!e.target.closest('#ms-hz-panel')&&e.target.id!=='ms-hz-btn')p.classList.remove('open');});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeHzModal();});
+  document.getElementById('asof').textContent=RAW.asof||'—';
+  applyDefaultHz();render();
+}
+function fmtMoney(el){let v=el.value.replace(/[^\d]/g,'');el.dataset.raw=v;el.value=v?Number(v).toLocaleString('en-US'):'';}
+function applyDefaultHz(){document.querySelectorAll('#hz-list input').forEach(b=>b.checked=!NA_RE.test(b.value));document.getElementById('hz-excl').checked=true;readHz();}
+
+/* slider */
+function buildSlider(){
+  const n=RAW.anios.length-1,from=document.getElementById('yr-from'),to=document.getElementById('yr-to');
+  from.max=to.max=n;from.value=state.yrFrom;to.value=state.yrTo;updateSliderUI();
+  from.oninput=()=>{state.yrFrom=Math.min(+from.value,+to.value);from.value=state.yrFrom;updateSliderUI();render();};
+  to.oninput=()=>{state.yrTo=Math.max(+to.value,+from.value);to.value=state.yrTo;updateSliderUI();render();};
+}
+function updateSliderUI(){
+  const n=Math.max(1,RAW.anios.length-1),a=state.yrFrom/n*100,b=state.yrTo/n*100;
+  document.getElementById('range-fill').style.left=a+'%';document.getElementById('range-fill').style.width=(b-a)+'%';
+  document.getElementById('yr-from-lbl').textContent=RAW.anios[state.yrFrom];
+  document.getElementById('yr-to-lbl').textContent=RAW.anios[state.yrTo];
+}
+
+/* HZ multiselect */
+function toggleMs(e){e.stopPropagation();document.getElementById('ms-hz-panel').classList.toggle('open');}
+function readHz(){const boxes=[...document.querySelectorAll('#hz-list input')];const chk=boxes.filter(b=>b.checked).map(b=>b.value);state.hzSel=(chk.length===boxes.length)?null:new Set(chk);const btn=document.getElementById('ms-hz-btn');btn.textContent=(state.hzSel===null)?'Todas las zonas':(chk.length===0?'Ninguna zona':chk.length+' de '+boxes.length+' zonas');}
+function hzChanged(){readHz();syncExclChk();render();}
+function hzAll(v){document.querySelectorAll('#hz-list input').forEach(b=>b.checked=v);readHz();syncExclChk();render();}
+function hzExclude(on){document.querySelectorAll('#hz-list input').forEach(b=>{if(NA_RE.test(b.value))b.checked=!on;});readHz();render();}
+function syncExclChk(){const na=[...document.querySelectorAll('#hz-list input')].filter(b=>NA_RE.test(b.value));document.getElementById('hz-excl').checked=na.length>0&&na.every(b=>!b.checked);}
+function resetFilters(){state.yrFrom=0;state.yrTo=RAW.anios.length-1;document.getElementById('yr-from').value=0;document.getElementById('yr-to').value=state.yrTo;updateSliderUI();applyDefaultHz();render();}
+
+/* render */
+function scopeText(){const ys=selYears();const parts=[ys.length?(ys.length>1?ys[0]+'–'+ys[ys.length-1]:'FY '+ys[0]):'—'];if(state.hzSel!==null)parts.push(state.hzSel.size+' HZ');return parts.join(' · ');}
+function render(){
+  const rows=filtered();
+  document.getElementById('bench-scope').textContent='Alcance: '+scopeText();
+  renderBenchmark();renderKPIs(rows);
+  const v=document.querySelector('.tab.active').dataset.v;
+  if(v==='resumen')renderResumen(rows);
+  if(v==='motivo')renderMotivo(rows);
+  if(v==='hz')renderHZ(rows);
+  if(v==='pivot')renderPivot(rows);
+}
+
+/* benchmark */
+function renderBenchmark(){const g=total(filtered());const rev=+(document.getElementById('in-rev').dataset.raw||0),plan=+(document.getElementById('in-plan').dataset.raw||0);meter('m-rev',pct(g,rev),rev>0,[3,5],8);meter('m-plan',pct(g,plan),plan>0,[0,10],30);}
+function meter(id,value,has,band,max){
+  const el=document.getElementById(id),fill=el.querySelector('.fill'),marker=el.querySelector('.marker'),pv=el.querySelector('.pctval'),chip=el.querySelector('.chip'),bandEl=el.querySelector('.band');
+  bandEl.style.left=(band[0]/max*100)+'%';bandEl.style.width=((band[1]-band[0])/max*100)+'%';
+  if(!has){pv.textContent='—';fill.style.width='0%';marker.style.left='0%';chip.className='chip';chip.textContent='';fill.style.background='var(--muted)';return;}
+  const w=Math.min(value,max)/max*100;pv.textContent=value.toFixed(2)+'%';fill.style.width=w+'%';marker.style.left=w+'%';
+  let cls,txt,col;
+  if(id==='m-plan'){if(value<=band[1]){cls='ok';txt='En referencia';col='var(--ok)';}else if(value<=band[1]*1.5){cls='warn';txt='Sobre referencia';col='var(--warn)';}else{cls='bad';txt='Excede';col='var(--bad)';}}
+  else{if(value>=band[0]&&value<=band[1]){cls='ok';txt='En rango';col='var(--ok)';}else if(value<band[0]){cls='warn';txt='Bajo el rango';col='var(--warn)';}else{cls='bad';txt='Sobre el rango';col='var(--bad)';}}
+  chip.className='chip '+cls;chip.textContent=txt;fill.style.background=col;
+}
+
+/* KPIs */
+function renderKPIs(rows){
+  const gTot=total(rows),ys=selYears();
+  const period=ys.length?(ys.length>1?ys[0]+' – '+ys[ys.length-1]:'FY '+ys[0]):'—';
+  const hz=hzOnly(),cur=RAW.currentFY,prev=RAW.anios[RAW.anios.indexOf(cur)-1];
+  const curTot=total(hz.filter(r=>r.af===cur)),prevTot=total(hz.filter(r=>r.af===prev));
+  let pill='';if(prevTot>0){const d=pct(curTot-prevTot,prevTot);pill=`<span class="pill ${d>=0?'up':'down'}">${d>=0?'▲ +':'▼ '}${d.toFixed(0)}% vs ${prev}</span>`;}
+  const me=monthsElapsed();
+  const projSub=projShown()?`Proyección cierre FY: <span class="proj">${fmtAbbr(curTot*(12/me))}</span> · run-rate ${me} meses`:'';
+  document.getElementById('kpis').innerHTML=`
+    <div class="kpi"><div class="kl">Total Gastos Acumulados (${period})</div><div class="kv num">${fmtAbbr(gTot)}</div><div class="kx">${fmtUSD(gTot)}</div></div>
+    <div class="kpi"><div class="kl">Gastos Año Fiscal Actual (${cur})</div><div class="kv num">${fmtAbbr(curTot)} ${pill}</div><div class="kx">${projSub}</div></div>`;
+}
+
+/* plugins */
+const stackTotals={id:'stackTotals',afterDatasetsDraw(chart){const ctx=chart.ctx;chart.data.labels.forEach((lab,i)=>{let exec=0,topY=null,cx=null;chart.data.datasets.forEach((ds,di)=>{const m=chart.getDatasetMeta(di);if(m.hidden)return;const el=m.data[i];if(!el)return;cx=el.x;if(topY===null||el.y<topY)topY=el.y;if(!ds.isProjection)exec+=(+ds.data[i]||0);});if(exec>0&&cx!=null){ctx.save();ctx.font='700 11.5px Inter,sans-serif';ctx.textAlign='center';ctx.textBaseline='bottom';ctx.lineWidth=3;ctx.strokeStyle='#fff';ctx.strokeText(fmtAbbr(exec),cx,topY-6);ctx.fillStyle='#12324D';ctx.fillText(fmtAbbr(exec),cx,topY-6);ctx.restore();}});}};
+const hbarValues={id:'hbarValues',afterDatasetsDraw(chart){const ctx=chart.ctx,m=chart.getDatasetMeta(0),ds=chart.data.datasets[0];m.data.forEach((el,i)=>{const v=+ds.data[i]||0;if(!v)return;ctx.save();ctx.font='600 11px Inter,sans-serif';ctx.fillStyle='#31465A';ctx.textAlign='left';ctx.textBaseline='middle';ctx.fillText(fmtAbbr(v),el.x+7,el.y);ctx.restore();});}};
+const pieLabels={id:'pieLabels',afterDatasetsDraw(chart){const ctx=chart.ctx,meta=chart.getDatasetMeta(0),ds=chart.data.datasets[0];const tot=ds.data.reduce((s,v)=>s+v,0);meta.data.forEach((el,i)=>{const p=ds.data[i]/tot*100;if(p<5)return;const pos=el.tooltipPosition();ctx.save();ctx.font='700 11px Inter,sans-serif';ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(p.toFixed(0)+'%',pos.x,pos.y);ctx.restore();});}};
+function mk(id,cfg){if(charts[id])charts[id].destroy();charts[id]=new Chart(document.getElementById(id),cfg);}
+
+/* resumen */
+function renderResumen(rows){
+  const me=monthsElapsed(),years=selYears(),seg=state.seg;
+  const colorOf=d=>seg==='fase'?(FASE_COLORS[d]||'#8FB4C9'):(HZ_COLORS[d]||'#8FB4C9');
+  // accumulated by dim (for order + pie)
+  const acc={};rows.forEach(r=>{const d=seg==='fase'?r.fase:r.hz;acc[d]=(acc[d]||0)+r.monto;});
+  const dims=(seg==='fase'?RAW.fases.filter(f=>acc[f]):Object.keys(acc)).sort((a,b)=>(acc[b]||0)-(acc[a]||0));
+  // matrix dim x year
+  const mtx={};rows.forEach(r=>{const d=seg==='fase'?r.fase:r.hz;mtx[r.af]=mtx[r.af]||{};mtx[r.af][d]=(mtx[r.af][d]||0)+r.monto;});
+  const dsDims=dims.map(d=>({label:d,data:years.map(y=>(mtx[y]&&mtx[y][d])||0),backgroundColor:colorOf(d),stack:'s',maxBarThickness:70,borderRadius:1}));
+  const execByYr=years.map(y=>dims.reduce((s,d)=>s+((mtx[y]&&mtx[y][d])||0),0));
+  const proj=years.map((y,i)=>(y===RAW.currentFY&&projShown())?Math.max(0,execByYr[i]*(12/me)-execByYr[i]):0);
+  const dsProj={label:'Proyección estimada',data:proj,isProjection:true,backgroundColor:'rgba(46,117,182,.22)',borderColor:'#2E75B6',borderWidth:{top:1.5,left:1,right:1,bottom:0},borderDash:[4,3],stack:'s',maxBarThickness:70};
+  document.getElementById('ev-note').textContent=(projShown()&&years.includes(RAW.currentFY))?('Apiladas por '+(seg==='fase'?'fase':'HZ')+' · proy. FY '+RAW.currentFY+' ('+me+' m)'):('Apiladas por '+(seg==='fase'?'fase':'HZ'));
+  mk('c-anio',{type:'bar',plugins:[stackTotals],
+    data:{labels:years,datasets:[...dsDims,dsProj]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:400},layout:{padding:{top:24}},
+      scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,ticks:{callback:v=>fmtAbbr(v)},grid:{color:'#EEF2F5'},grace:'8%'}},
+      plugins:{legend:{display:false},tooltip:{filter:i=>i.raw>0,callbacks:{label:c=>' '+c.dataset.label+': '+fmtUSD(c.raw)}}}}});
+
+  document.getElementById('comp-title').textContent='Composición por '+(seg==='fase'?'fase':'Hunting Zone');
+  const gtot=dims.reduce((s,d)=>s+acc[d],0);
+  mk('c-comp',{type:'pie',plugins:[pieLabels],
+    data:{labels:dims,datasets:[{data:dims.map(d=>acc[d]),backgroundColor:dims.map(colorOf),borderWidth:2,borderColor:'#fff'}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:400},
+      plugins:{legend:{position:'right',labels:{boxWidth:11,font:{size:10.5},padding:8}},
+        tooltip:{callbacks:{label:c=>' '+c.label+': '+fmtUSD(c.parsed)+' ('+pct(c.parsed,gtot).toFixed(0)+'%)'}}}}});
+}
+
+/* motivo -> HZ */
+function renderMotivo(rows){
+  const byM={};rows.forEach(r=>{const o=byM[r.motivo]=byM[r.motivo]||{monto:0,hz:{}};o.monto+=r.monto;o.hz[r.hz]=(o.hz[r.hz]||0)+r.monto;});
+  const mots=Object.keys(byM).sort((a,b)=>byM[b].monto-byM[a].monto),gtot=total(rows),top=mots.slice(0,15);
+  mk('c-motivo',{type:'bar',plugins:[hbarValues],
+    data:{labels:top,datasets:[{data:top.map(m=>byM[m].monto),backgroundColor:'#2FB9CE',borderRadius:4,maxBarThickness:22}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:400},indexAxis:'y',layout:{padding:{right:56}},
+      scales:{x:{ticks:{callback:v=>fmtAbbr(v)},grid:{color:'#EEF2F5'},grace:'6%'},y:{grid:{display:false},ticks:{font:{size:11}}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+fmtUSD(c.raw)}}}}});
+  const maxM=byM[mots[0]]?.monto||1,tb=document.getElementById('motivo-tbody');
+  tb.innerHTML=mots.map((m,i)=>{
+    const o=byM[m],p=pct(o.monto,gtot),hzs=Object.entries(o.hz).sort((a,b)=>b[1]-a[1]);
+    const dr=hzs.map(([h,hv])=>`<tr class="drow d-${i} ${motAllOpen?'':'hidden'}"><td>${h}</td><td class="r num">${fmtUSD(hv)}</td><td class="r num">${pct(hv,o.monto).toFixed(1)}%</td></tr>`).join('');
+    return `<tr class="mrow ${motAllOpen?'open':''}" data-i="${i}"><td><span class="caret">▶</span>${m}<div class="bar-mini" style="width:${o.monto/maxM*68}%"></div></td><td class="r num">${fmtUSD(o.monto)}</td><td class="r num">${p.toFixed(1)}%</td></tr>${dr}`;
+  }).join('');
+  tb.querySelectorAll('.mrow').forEach(r=>r.onclick=()=>{r.classList.toggle('open');tb.querySelectorAll('.d-'+r.dataset.i).forEach(d=>d.classList.toggle('hidden'));});
+}
+function toggleAllMot(){motAllOpen=!motAllOpen;document.getElementById('mot-toggle').textContent=motAllOpen?'Colapsar todo':'Expandir todo';document.querySelectorAll('#motivo-tbody .drow').forEach(d=>d.classList.toggle('hidden',!motAllOpen));document.querySelectorAll('#motivo-tbody .mrow').forEach(r=>r.classList.toggle('open',motAllOpen));}
+
+/* HZ cards */
+function renderHZ(rows){
+  const byH={};rows.forEach(r=>{byH[r.hz]=byH[r.hz]||{monto:0,mot:{}};byH[r.hz].monto+=r.monto;byH[r.hz].mot[r.motivo]=(byH[r.hz].mot[r.motivo]||0)+r.monto;});
+  const hs=Object.keys(byH).sort((a,b)=>byH[b].monto-byH[a].monto),grid=document.getElementById('hz-grid');
+  if(!hs.length){grid.innerHTML='<div class="empty">Sin registros para el alcance seleccionado.</div>';return;}
+  grid.innerHTML=hs.map(h=>{
+    const o=byH[h],mots=Object.entries(o.mot).sort((a,b)=>b[1]-a[1]).slice(0,5),maxV=mots[0][1];
+    const bars=mots.map(([m,v],idx)=>`<div class="mbar"><div class="mb-h"><span class="mb-n">${m}</span><span class="mb-v">${fmtUSD(v)} · ${pct(v,o.monto).toFixed(0)}%</span></div><div class="mb-track"><div class="mb-fill" style="width:${v/maxV*100}%;background:${PALETTE[idx%PALETTE.length]}"></div></div></div>`).join('');
+    return `<div class="card hz-card"><div class="hz-head"><div><div class="hz-name">${h}</div><div class="hz-sub">${Object.keys(o.mot).length} motivos de gasto</div></div><div class="hz-total num">${fmtAbbr(o.monto)}</div></div><div class="hz-body">${bars}</div><button class="hz-detail-btn" data-hz="${esc(h)}">Ver detalle (tabla dinámica) →</button></div>`;
+  }).join('');
+  grid.querySelectorAll('.hz-detail-btn').forEach(b=>b.onclick=()=>openHzModal(b.dataset.hz));
+}
+
+/* PIVOT: HZ -> Motivo -> Detalle x años */
+function renderPivot(rows){
+  const years=selYears();
+  const tree={};
+  rows.forEach(r=>{
+    const H=tree[r.hz]=tree[r.hz]||{t:0,yr:{},mot:{}};H.t+=r.monto;H.yr[r.af]=(H.yr[r.af]||0)+r.monto;
+    const M=H.mot[r.motivo]=H.mot[r.motivo]||{t:0,yr:{},det:{}};M.t+=r.monto;M.yr[r.af]=(M.yr[r.af]||0)+r.monto;
+    const D=M.det[r.detalle]=M.det[r.detalle]||{t:0,yr:{}};D.t+=r.monto;D.yr[r.af]=(D.yr[r.af]||0)+r.monto;
+  });
+  const hzs=Object.keys(tree).sort((a,b)=>tree[b].t-tree[a].t);
+  const cell=o=>years.map(y=>`<td class="r num">${o.yr[y]?fmtAbbr(o.yr[y]):'<span class="z">–</span>'}</td>`).join('')+`<td class="r num tot">${fmtAbbr(o.t)}</td>`;
+  let thead='<thead><tr><th class="rl">Hunting Zone / Motivo / Detalle</th>'+years.map(y=>`<th class="r">${y}</th>`).join('')+'<th class="r tot">Total</th></tr></thead>';
+  const grand={yr:{},t:0};let html='';
+  hzs.forEach((h,hi)=>{
+    const H=tree[h];years.forEach(y=>grand.yr[y]=(grand.yr[y]||0)+(H.yr[y]||0));grand.t+=H.t;
+    const hid='h'+hi;
+    html+=`<tr class="pv-row lvl0" data-id="${hid}" data-parent="" data-hc="1"><td class="rl"><span class="pvcaret">▶</span>${esc(h)}</td>${cell(H)}</tr>`;
+    Object.keys(H.mot).sort((a,b)=>H.mot[b].t-H.mot[a].t).forEach((m,mi)=>{
+      const M=H.mot[m],mid=hid+'m'+mi;
+      html+=`<tr class="pv-row lvl1" data-id="${mid}" data-parent="${hid}" data-hc="1"><td class="rl"><span class="pvcaret">▶</span>${esc(m)}</td>${cell(M)}</tr>`;
+      Object.keys(M.det).sort((a,b)=>M.det[b].t-M.det[a].t).forEach((d,di)=>{
+        const D=M.det[d],did=mid+'d'+di;
+        html+=`<tr class="pv-row lvl2" data-id="${did}" data-parent="${mid}" data-hc="0"><td class="rl">${esc(d)}</td>${cell(D)}</tr>`;
+      });
+    });
+  });
+  html+=`<tr class="pv-total"><td class="rl">Total general</td>${years.map(y=>`<td class="r num">${fmtAbbr(grand.yr[y]||0)}</td>`).join('')}<td class="r num tot">${fmtAbbr(grand.t)}</td></tr>`;
+  const tbl=document.getElementById('pivot-table');
+  tbl.innerHTML=thead+'<tbody>'+ (hzs.length?html:`<tr><td class="empty" colspan="${years.length+2}">Sin registros para el alcance seleccionado.</td></tr>`) +'</tbody>';
+  tbl.querySelectorAll('.pv-row[data-hc="1"] .rl').forEach(rl=>rl.onclick=()=>{const id=rl.parentNode.dataset.id;pivotExpanded.has(id)?pivotExpanded.delete(id):pivotExpanded.add(id);refreshPivot();});
+  refreshPivot();
+  const exp=[...tbl.querySelectorAll('.pv-row[data-hc="1"]')].map(r=>r.dataset.id);
+  const allOpen=exp.length&&exp.every(id=>pivotExpanded.has(id));
+  document.getElementById('pv-toggle').textContent=allOpen?'Colapsar todo':'Expandir todo';
+}
+function refreshPivot(){
+  const tbl=document.getElementById('pivot-table');if(!tbl)return;
+  const by={};tbl.querySelectorAll('.pv-row').forEach(r=>by[r.dataset.id]=r);
+  tbl.querySelectorAll('.pv-row').forEach(r=>{
+    let vis=true,p=r.dataset.parent;
+    while(p){if(!pivotExpanded.has(p)){vis=false;break;}p=by[p]?by[p].dataset.parent:'';}
+    r.style.display=vis?'':'none';
+    const c=r.querySelector('.pvcaret');if(c)c.style.transform=pivotExpanded.has(r.dataset.id)?'rotate(90deg)':'';
+  });
+}
+function togglePivotAll(){
+  const tbl=document.getElementById('pivot-table'),btn=document.getElementById('pv-toggle');
+  const ids=[...tbl.querySelectorAll('.pv-row[data-hc="1"]')].map(r=>r.dataset.id);
+  const allOpen=ids.length&&ids.every(id=>pivotExpanded.has(id));
+  if(allOpen){pivotExpanded.clear();btn.textContent='Expandir todo';}else{ids.forEach(id=>pivotExpanded.add(id));btn.textContent='Colapsar todo';}
+  refreshPivot();
+}
+
+/* Modal motivo -> detalle */
+function openHzModal(hz){
+  const rows=filtered().filter(r=>r.hz===hz),tot=total(rows);
+  const byM={};rows.forEach(r=>{const o=byM[r.motivo]=byM[r.motivo]||{monto:0,det:{}};o.monto+=r.monto;o.det[r.detalle]=(o.det[r.detalle]||0)+r.monto;});
+  const mots=Object.keys(byM).sort((a,b)=>byM[b].monto-byM[a].monto);
+  document.getElementById('hzm-title').textContent=hz;
+  document.getElementById('hzm-sub').textContent=fmtUSD(tot)+' · '+mots.length+' motivos';
+  document.getElementById('hzm-info').textContent='Alcance: '+scopeText();
+  pvtAllOpen=true;document.getElementById('hzm-toggle').textContent='Colapsar todo';
+  const body=document.getElementById('pvt-body');
+  body.innerHTML=mots.map((m,i)=>{
+    const o=byM[m],dets=Object.entries(o.det).sort((a,b)=>b[1]-a[1]);
+    const dr=dets.map(([d,dv])=>`<tr class="pd p-${i}"><td>${esc(d)}</td><td class="r num">${fmtUSD(dv)}</td><td class="r num">${pct(dv,tot).toFixed(1)}%</td></tr>`).join('');
+    return `<tr class="pm open" data-i="${i}"><td><span class="pcaret">▶</span>${esc(m)}</td><td class="r num">${fmtUSD(o.monto)}</td><td class="r num">${pct(o.monto,tot).toFixed(1)}%</td></tr>${dr}`;
+  }).join('')+`<tr class="ptot"><td>Total · ${esc(hz)}</td><td class="r num">${fmtUSD(tot)}</td><td class="r num">100%</td></tr>`;
+  body.querySelectorAll('.pm').forEach(r=>r.onclick=()=>{r.classList.toggle('open');body.querySelectorAll('.p-'+r.dataset.i).forEach(d=>d.classList.toggle('hidden'));});
+  document.getElementById('hz-modal').classList.add('open');document.body.classList.add('locked');
+}
+function closeHzModal(){document.getElementById('hz-modal').classList.remove('open');document.body.classList.remove('locked');}
+function toggleAllPvt(){pvtAllOpen=!pvtAllOpen;document.getElementById('hzm-toggle').textContent=pvtAllOpen?'Colapsar todo':'Expandir todo';document.querySelectorAll('#pvt-body .pd').forEach(d=>d.classList.toggle('hidden',!pvtAllOpen));document.querySelectorAll('#pvt-body .pm').forEach(r=>r.classList.toggle('open',pvtAllOpen));}
+
+boot();
+</script>
+</body>
+</html>
