@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# El template de variables SÍ se versiona
+!.env.local.example
+
+# Data de negocio: nunca versionar los consolidados ni los formatos cargados
+*.xlsx
+*.xls

@@ -6,10 +6,16 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "importar:consolidado": "NODE_OPTIONS=--experimental-websocket node --env-file=.env.local node_modules/.bin/tsx scripts/importar_consolidado.ts",
+    "verificar:sap": "NODE_OPTIONS=--experimental-websocket node --env-file=.env.local node_modules/.bin/tsx scripts/verificar_parser_sap.ts"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.4",
+    "@supabase/supabase-js": "^2.109.0",
+    "exceljs": "^4.4.0",
     "next": "16.3.0",
+    "node-html-parser": "^9.0.1",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
@@ -21,6 +27,10 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "tailwindcss": "^4",
+    "tsx": "^4.23.6",
     "typescript": "^5"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }
