@@ -43,7 +43,7 @@ export default async function CargasPage() {
       <header>
         <h1 className="text-2xl font-semibold text-slate-900">Carga de reportes SAP</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-600">
-          Arrastrá los exportables mensuales de SAP (Centro de Costo y Orden Interna). El
+          Arrastra los exportables mensuales de SAP (Centro de Costo y Orden Interna). El
           sistema descarta los subtotales, cruza las órdenes internas contra las maestras,
           infiere la Hunting Zone de los gastos huérfanos con las etiquetas del texto y
           predice Fase, Motivo y Detalle a partir del histórico.

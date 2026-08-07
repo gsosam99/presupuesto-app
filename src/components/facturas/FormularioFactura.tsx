@@ -7,6 +7,11 @@ import { Button } from "@/components/ui/Button";
 import { CampoSugerido } from "@/components/ui/CampoSugerido";
 import { AYUDA, CONTROL, ETIQUETA } from "@/components/ui/estilos";
 
+const formatoMoneda = new Intl.NumberFormat("es-VE", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 export interface OpcionOi {
   id: string;
   codigo: string;
@@ -14,6 +19,12 @@ export interface OpcionOi {
   /** Hunting Zone que la maestra ya tiene asociada a esta OI. */
   huntingZone: string | null;
   idHuntingZone: string | null;
+  /** Fondos del trimestre en curso: lo que realmente queda para gastar hoy. */
+  saldoTrimestre: number | null;
+  disponibleTrimestre: number | null;
+  consumidoTrimestre: number | null;
+  /** Rango de vigencia legible, o null si la orden está abierta. */
+  vigencia: string | null;
 }
 
 export interface OpcionSelect {
@@ -30,9 +41,15 @@ export interface Sugerencias {
 interface Props {
   ordenesInternas: OpcionOi[];
   sugerencias: Sugerencias;
+  /** Etiqueta del trimestre en curso, p. ej. "T4 · Jul–Sep". */
+  trimestreActual: string;
 }
 
-export function FormularioFactura({ ordenesInternas, sugerencias }: Props) {
+export function FormularioFactura({
+  ordenesInternas,
+  sugerencias,
+  trimestreActual,
+}: Props) {
   const router = useRouter();
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -148,6 +165,7 @@ export function FormularioFactura({ ordenesInternas, sugerencias }: Props) {
               <option key={o.id} value={o.id}>
                 {o.codigo}
                 {o.nombre ? ` — ${o.nombre}` : ""}
+                {o.vigencia ? ` (${o.vigencia})` : ""}
               </option>
             ))}
           </select>
@@ -171,6 +189,44 @@ export function FormularioFactura({ ordenesInternas, sugerencias }: Props) {
           <p className={AYUDA}>Se completa sola con la Orden Interna.</p>
         </div>
       </div>
+
+      {/* Fondos de la OI elegida: es el dato que hace falta antes de emitir la
+          factura, para no comprometer plata que el trimestre ya no tiene. */}
+      {oiElegida && oiElegida.saldoTrimestre !== null && (
+        <div
+          className={
+            "mt-4 rounded-md border px-4 py-3 " +
+            (oiElegida.saldoTrimestre > 0
+              ? "border-[rgba(30,138,138,0.35)] bg-[rgba(30,138,138,0.08)]"
+              : "border-[rgba(158,43,51,0.35)] bg-[rgba(158,43,51,0.07)]")
+          }
+        >
+          <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">
+            Fondos de {oiElegida.codigo} · {trimestreActual}
+          </p>
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-6 gap-y-1">
+            <p
+              className="text-2xl font-extrabold tabular-nums"
+              style={{
+                color:
+                  oiElegida.saldoTrimestre > 0 ? "var(--ok)" : "var(--bad)",
+              }}
+            >
+              {formatoMoneda.format(oiElegida.saldoTrimestre)}
+            </p>
+            <p className="text-xs text-[var(--muted)]">
+              disponible {formatoMoneda.format(oiElegida.disponibleTrimestre ?? 0)} ·
+              consumido {formatoMoneda.format(oiElegida.consumidoTrimestre ?? 0)}
+            </p>
+          </div>
+          {oiElegida.saldoTrimestre <= 0 && (
+            <p className="mt-1 text-xs font-semibold text-[var(--bad)]">
+              Este trimestre ya no tiene fondos: hace falta un extra plan antes de
+              comprometer el gasto.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Taxonomía: los tres campos en una misma fila */}
       <div className="mt-4 grid gap-4 sm:grid-cols-3">

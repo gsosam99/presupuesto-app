@@ -25,7 +25,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     if (tipoCrudo !== "plan" && tipoCrudo !== "extra_plan") {
       return Response.json(
-        { error: "Indicá si el archivo es Plan base o Extra Plan" },
+        { error: "Indica si el archivo es Plan base o Extra Plan" },
         { status: 400 },
       );
     }

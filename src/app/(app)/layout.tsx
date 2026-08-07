@@ -8,6 +8,8 @@ const NAVEGACION = [
   ["/cargas", "Cargas"],
   ["/facturas", "Facturas"],
   ["/triaje", "Triaje"],
+  ["/fondos", "Fondos"],
+  ["/solicitudes", "Solicitudes"],
   ["/archivados", "Archivados"],
   ["/presupuestos", "Presupuestos"],
 ] as const;

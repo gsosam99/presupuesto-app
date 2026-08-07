@@ -237,6 +237,75 @@ export interface ConciliacionFactura {
 }
 
 // ---------------------------------------------------------------------------
+// Gestión de presupuesto: disponibilidad trimestral y solicitudes
+// ---------------------------------------------------------------------------
+
+/** Trimestre del año fiscal: 1 = Oct-Dic, 2 = Ene-Mar, 3 = Abr-Jun, 4 = Jul-Sep. */
+export type Trimestre = 1 | 2 | 3 | 4;
+
+export type EstadoTrimestre = "cerrado" | "actual" | "futuro";
+
+export type TipoSolicitud = "extra_plan" | "prorroga";
+
+export type EstadoSolicitud = "borrador" | "enviada" | "aprobada" | "rechazada";
+
+/** Fila de disponibilidad_trimestral(): el bolsillo de una OI en un trimestre. */
+export interface DisponibilidadTrimestre {
+  clave: string;
+  id_oi: string | null;
+  codigo_oi: string | null;
+  id_ceco: string | null;
+  codigo_ceco: string | null;
+  id_hunting_zone: string | null;
+  hunting_zone: string | null;
+  trimestre: Trimestre;
+  estado_trimestre: EstadoTrimestre;
+  monto_plan: number;
+  monto_extra: number;
+  /** Sobrante del trimestre anterior salvado por una prórroga aprobada. */
+  arrastre_recibido: number;
+  /** plan + extra + arrastre recibido. */
+  disponible: number;
+  consumido: number;
+  saldo: number;
+  arrastre_siguiente: number;
+  /** Sobrante de un trimestre cerrado que ninguna prórroga salvó: se perdió. */
+  vencido: number;
+}
+
+export interface Solicitud {
+  id: string;
+  tipo: TipoSolicitud;
+  estado: EstadoSolicitud;
+  id_oi: string | null;
+  id_ceco: string | null;
+  fy: number;
+  trimestre: Trimestre | null;
+  titulo: string;
+  justificacion: string | null;
+  monto_solicitado: number | null;
+  referencia_aprobacion: string | null;
+  nota_resolucion: string | null;
+  creada_por: string | null;
+  resuelta_por: string | null;
+  enviada_at: string | null;
+  resuelta_at: string | null;
+  created_at: string;
+}
+
+export interface SolicitudLinea {
+  id: string;
+  id_solicitud: string;
+  mes: number;
+  monto: number;
+  cuenta_contable: string | null;
+  descripcion_cuenta: string | null;
+  tipo_gasto: string | null;
+  detalle_gasto: string | null;
+  responsable: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Cargas (Flujos A y B)
 // ---------------------------------------------------------------------------
 

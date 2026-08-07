@@ -51,3 +51,25 @@ export function inicioFy(fy: number): Date {
 export function finFy(fy: number): Date {
   return new Date(Date.UTC(fy + 1, MES_INICIO_FY - 1, 0));
 }
+
+/** Trimestre del año fiscal al que pertenece un mes calendario. */
+export function trimestreDeMes(mes: number): 1 | 2 | 3 | 4 {
+  return ((((mes + 2) % 12) / 3) | 0) + 1 as 1 | 2 | 3 | 4;
+}
+
+/** Meses calendario de un trimestre fiscal, en orden. */
+export function mesesDeTrimestre(trimestre: number): number[] {
+  const inicio = MES_INICIO_FY - 1 + (trimestre - 1) * 3;
+  return [0, 1, 2].map((i) => ((inicio + i) % 12) + 1);
+}
+
+/** Etiqueta legible: "T2 · Ene–Mar". */
+export function etiquetaTrimestre(trimestre: number): string {
+  const meses = mesesDeTrimestre(trimestre);
+  return `T${trimestre} · ${nombreMes(meses[0])}–${nombreMes(meses[2])}`;
+}
+
+/** Trimestre fiscal en curso para una fecha dada. */
+export function trimestreActual(hoy = new Date()): 1 | 2 | 3 | 4 {
+  return trimestreDeMes(hoy.getMonth() + 1);
+}

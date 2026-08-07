@@ -17,7 +17,7 @@ export default function ErrorPage({
     <main className="mx-auto w-full max-w-lg px-6 py-24 text-center">
       <h2 className="text-lg font-semibold text-rose-700">Algo salió mal</h2>
       <p className="mt-2 text-sm text-slate-600">
-        No se pudo cargar esta sección. Intentá de nuevo; si persiste, revisá la conexión
+        No se pudo cargar esta sección. Intenta de nuevo; si persiste, revisa la conexión
         con Supabase.
       </p>
       <button

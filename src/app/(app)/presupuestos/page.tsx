@@ -51,7 +51,7 @@ export default async function PresupuestosPage() {
       <header>
         <h1 className="text-2xl font-semibold text-slate-900">Presupuestos</h1>
         <p className="mt-2 max-w-3xl text-sm text-slate-600">
-          Cargá el Plan base y los Extra Plan. Cada línea apunta a una Orden Interna, y el
+          Carga el Plan base y los Extra Plan. Cada línea apunta a una Orden Interna, y el
           sistema deduce solo a qué Centro de Costo y Hunting Zone pertenece cruzando
           contra la maestra. Si una OI del archivo no existe, esa línea se rechaza con el
           motivo en vez de cargarse a ciegas.

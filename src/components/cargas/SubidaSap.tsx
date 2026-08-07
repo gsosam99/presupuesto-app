@@ -111,7 +111,7 @@ export function SubidaSap() {
         }
       >
         <p className="text-sm text-slate-600">
-          Arrastrá acá los <span className="font-medium text-slate-900">.xls</span> de SAP,
+          Arrastra acá los <span className="font-medium text-slate-900">.xls</span> de SAP,
           o
         </p>
 
@@ -138,7 +138,7 @@ export function SubidaSap() {
         />
 
         <p className="mt-3 text-xs text-slate-500">
-          Podés soltar los dos reportes (CeCo y OI) a la vez. Máximo 25 MB por archivo.
+          Puedes soltar los dos reportes (CeCo y OI) a la vez. Máximo 25 MB por archivo.
         </p>
       </div>
 

@@ -17,7 +17,7 @@ function requerida(valor: string | undefined, nombre: string): string {
   if (!valor || valor.trim() === "") {
     throw new Error(
       `Variable de entorno requerida: ${nombre}. ` +
-        `En local, copiá .env.local.example a .env.local; en Vercel, cargala en ` +
+        `En local, copia .env.local.example a .env.local; en Vercel, cárgala en ` +
         `Project Settings > Environment Variables.`,
     );
   }

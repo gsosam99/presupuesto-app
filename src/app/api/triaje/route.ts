@@ -90,7 +90,8 @@ export async function PATCH(request: Request): Promise<Response> {
         idHz = fila.id_hunting_zone as string;
         cambios.origen_hz = "manual";
       } else {
-        // Orden Interna: además de la HZ, arrastra el CeCo de la maestra.
+        // Orden Interna. La imputación es EXCLUYENTE: si el gasto va a una OI,
+        // el CeCo se deduce del padre y no se guarda repetido.
         const { data: oi, error } = await supabase
           .from("ordenes_internas")
           .select("id, id_ceco, id_hunting_zone")
@@ -98,18 +99,42 @@ export async function PATCH(request: Request): Promise<Response> {
           .maybeSingle();
 
         if (error) return Response.json({ error: error.message }, { status: 400 });
-        if (!oi) {
-          return Response.json(
-            { error: `La Orden Interna "${asignacion}" no existe en la maestra.` },
-            { status: 400 },
-          );
-        }
-        idOi = oi.id as string;
-        cambios.id_oi = idOi;
-        if (oi.id_ceco) cambios.id_ceco = oi.id_ceco as string;
-        if (!idHz && oi.id_hunting_zone) {
-          idHz = oi.id_hunting_zone as string;
-          cambios.origen_hz = "orden_interna";
+
+        if (oi) {
+          idOi = oi.id as string;
+          cambios.id_oi = idOi;
+          cambios.id_ceco = null;
+          if (!idHz && oi.id_hunting_zone) {
+            idHz = oi.id_hunting_zone as string;
+            cambios.origen_hz = "orden_interna";
+          }
+        } else {
+          // Si no es una OI, puede ser un CeCo: hay Hunting Zones que no usan
+          // órdenes internas y el gasto se imputa directo al centro de costo.
+          const { data: ceco, error: errorCeco } = await supabase
+            .from("cecos")
+            .select("id, id_hunting_zone")
+            .ilike("codigo_sap", asignacion)
+            .maybeSingle();
+
+          if (errorCeco) {
+            return Response.json({ error: errorCeco.message }, { status: 400 });
+          }
+          if (!ceco) {
+            return Response.json(
+              {
+                error: `"${asignacion}" no es una Orden Interna ni un Centro de Costo de la maestra.`,
+              },
+              { status: 400 },
+            );
+          }
+
+          cambios.id_ceco = ceco.id as string;
+          cambios.id_oi = null;
+          if (!idHz && ceco.id_hunting_zone) {
+            idHz = ceco.id_hunting_zone as string;
+            cambios.origen_hz = "manual";
+          }
         }
       }
     } else if (idHz) {
@@ -128,7 +153,10 @@ export async function PATCH(request: Request): Promise<Response> {
       if (!factura) return Response.json({ error: "La factura no existe" }, { status: 400 });
 
       cambios.id_factura_preregistrada = factura.id as string;
-      if (!idOi && factura.id_oi) cambios.id_oi = factura.id_oi as string;
+      if (!idOi && factura.id_oi) {
+        cambios.id_oi = factura.id_oi as string;
+        cambios.id_ceco = null;
+      }
       if (!idHz && factura.id_hunting_zone) {
         idHz = factura.id_hunting_zone as string;
         cambios.origen_hz = "prerregistro";
@@ -162,7 +190,7 @@ export async function PATCH(request: Request): Promise<Response> {
         return Response.json(
           {
             error:
-              "Falta el proyecto: escribí una Orden Interna, una etiqueta (#CAM) o asociá una factura pre-registrada.",
+              "Falta el proyecto: escribe una Orden Interna, una etiqueta (#CAM) o asocia una factura pre-registrada.",
           },
           { status: 400 },
         );

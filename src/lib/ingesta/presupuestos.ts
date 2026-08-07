@@ -246,7 +246,7 @@ export async function importarPresupuestoExcel(
       oisDesconocidas.add(codigoOi);
       rechazos.push({
         fila: numero,
-        motivo: `La Orden Interna "${codigoOi}" no existe en la maestra: cargala antes de reintentar`,
+        motivo: `La Orden Interna "${codigoOi}" no existe en la maestra: cárgala antes de reintentar`,
       });
       return;
     }

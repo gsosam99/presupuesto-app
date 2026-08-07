@@ -34,7 +34,7 @@ export default async function ArchivadosPage() {
         <h1 className="ui-title">Gastos archivados</h1>
         <p className="ui-lead">
           Gastos que SAP trae en cada reporte pero que no entran en el control. No se borran
-          nunca: quedan acá, fuera de todos los KPIs, y podés devolverlos al triaje cuando
+          nunca: quedan acá, fuera de todos los KPIs, y puedes devolverlos al triaje cuando
           haga falta. Al recargar el mismo reporte, la deduplicación evita que vuelvan a
           entrar.
         </p>

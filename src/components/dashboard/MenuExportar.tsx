@@ -50,7 +50,7 @@ export function MenuExportar({
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      window.alert("No se pudo generar el HTML. Reintentá en unos segundos.");
+      window.alert("No se pudo generar el HTML. Reinténtalo en unos segundos.");
     } finally {
       setDescargando(false);
     }
@@ -102,7 +102,7 @@ export function MenuExportar({
           />
           <OpcionMenu
             titulo="Descargar PDF ejecutivo"
-            detalle="Abre el diálogo de impresión: elegí “Guardar como PDF”."
+            detalle="Abre el diálogo de impresión: elige “Guardar como PDF”."
             onClick={imprimir}
           />
           <OpcionMenu

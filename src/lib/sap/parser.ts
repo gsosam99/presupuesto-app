@@ -143,7 +143,7 @@ export function parsearArchivoSap(buffer: Buffer, nombreArchivo: string): Result
   if (!esMimeHtml(buffer)) {
     throw new Error(
       `"${nombreArchivo}" no parece un exportable de SAP. ` +
-        `Se esperaba un .xls MIME-HTML; si es un Excel real, exportalo de nuevo desde SAP.`,
+        `Se esperaba un .xls MIME-HTML; si es un Excel real, expórtalo de nuevo desde SAP.`,
     );
   }
 

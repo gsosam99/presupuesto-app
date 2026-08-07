@@ -739,3 +739,182 @@ alter function public.tg_gastos_proteger_sap()   set search_path = '';
 -- ============================================================================
 -- Fin del schema. Los catálogos maestros se cargan con supabase/seed.sql
 -- ============================================================================
+
+-- ============================================================================
+-- 10. Gestión de presupuesto: fondos trimestrales y solicitudes
+-- ============================================================================
+-- Regla de negocio: los fondos planificados se habilitan por trimestre fiscal.
+-- Lo que no se consume SE PIERDE al cerrar el trimestre, salvo que exista una
+-- prórroga aprobada que lo arrastre al siguiente.
+
+-- Trimestre del año fiscal (arranca en octubre).
+create or replace function public.trimestre_fy(p_mes smallint)
+returns smallint language sql immutable strict set search_path = '' as $$
+  select (((p_mes + 2) % 12) / 3 + 1)::smallint;
+$$;
+
+comment on function public.trimestre_fy(smallint) is
+  'Trimestre del año fiscal IENN. Oct/Nov/Dic=1, Ene/Feb/Mar=2, Abr/May/Jun=3, Jul/Ago/Sep=4.';
+
+-- El presupuesto cuelga de una OI o, si la Hunting Zone no tiene, de un CeCo.
+alter table public.presupuestos alter column id_oi drop not null;
+alter table public.presupuestos
+  add column if not exists id_ceco uuid references public.cecos(id) on delete restrict;
+
+do $$ begin
+  alter table public.presupuestos
+    add constraint presupuestos_tiene_unidad check (id_oi is not null or id_ceco is not null);
+exception when duplicate_object then null; end $$;
+
+create index if not exists idx_presu_ceco on public.presupuestos(id_ceco);
+
+-- Fecha efectiva del gasto: manda la de la factura pre-registrada (es cuándo
+-- ocurrió de verdad); si no hay pre-registro, cae a la fecha de documento SAP.
+create or replace view public.v_gastos_periodo as
+select
+  g.id, g.id_oi, g.id_ceco, g.id_hunting_zone, g.estado_revision, g.monto_real,
+  coalesce(fp.fecha_factura, g.fecha_documento) as fecha_efectiva,
+  public.fy_de_fecha(coalesce(fp.fecha_factura, g.fecha_documento)) as fy_efectivo,
+  public.trimestre_fy(
+    extract(month from coalesce(fp.fecha_factura, g.fecha_documento))::smallint
+  ) as trimestre,
+  fp.fecha_factura is not null as fecha_de_factura
+from public.gastos g
+left join public.facturas_preregistradas fp on fp.id = g.id_factura_preregistrada;
+
+alter view public.v_gastos_periodo set (security_invoker = on);
+
+-- --- Solicitudes ------------------------------------------------------------
+do $$ begin
+  create type public.tipo_solicitud as enum ('extra_plan', 'prorroga');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type public.estado_solicitud as enum ('borrador', 'enviada', 'aprobada', 'rechazada');
+exception when duplicate_object then null; end $$;
+
+create table if not exists public.solicitudes (
+  id                uuid primary key default gen_random_uuid(),
+  tipo              public.tipo_solicitud not null,
+  estado            public.estado_solicitud not null default 'borrador',
+  id_oi             uuid references public.ordenes_internas(id) on delete restrict,
+  id_ceco           uuid references public.cecos(id) on delete restrict,
+  fy                smallint not null,
+  trimestre         smallint,          -- solo 'prorroga': trimestre a conservar
+  titulo            text not null,
+  justificacion     text,
+  monto_solicitado  numeric(14, 2),
+  referencia_aprobacion text,          -- respaldo de la aprobación externa
+  nota_resolucion       text,
+  creada_por        uuid references auth.users(id) on delete set null,
+  resuelta_por      uuid references auth.users(id) on delete set null,
+  enviada_at        timestamptz,
+  resuelta_at       timestamptz,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  constraint solicitudes_tiene_unidad check (id_oi is not null or id_ceco is not null),
+  constraint solicitudes_fy_rango     check (fy between 2015 and 2100),
+  constraint solicitudes_trimestre    check (trimestre is null or trimestre between 1 and 4),
+  constraint solicitudes_prorroga_trimestre check (tipo <> 'prorroga' or trimestre is not null),
+  constraint solicitudes_prorroga_monto     check (tipo <> 'prorroga' or monto_solicitado is not null)
+);
+
+create index if not exists idx_solicitudes_estado on public.solicitudes(estado, tipo);
+create index if not exists idx_solicitudes_oi     on public.solicitudes(id_oi);
+create index if not exists idx_solicitudes_fy     on public.solicitudes(fy, trimestre);
+
+create table if not exists public.solicitud_lineas (
+  id                 uuid primary key default gen_random_uuid(),
+  id_solicitud       uuid not null references public.solicitudes(id) on delete cascade,
+  mes                smallint not null,
+  monto              numeric(14, 2) not null,
+  cuenta_contable    text,
+  descripcion_cuenta text,
+  tipo_gasto         text,
+  detalle_gasto      text,
+  responsable        text,
+  created_at         timestamptz not null default now(),
+  constraint solicitud_lineas_mes   check (mes between 1 and 12),
+  constraint solicitud_lineas_monto check (monto > 0)
+);
+
+create index if not exists idx_solicitud_lineas on public.solicitud_lineas(id_solicitud);
+
+alter table public.presupuestos
+  add column if not exists id_solicitud uuid references public.solicitudes(id) on delete set null;
+create index if not exists idx_presu_solicitud on public.presupuestos(id_solicitud);
+
+alter table public.solicitudes      enable row level security;
+alter table public.solicitud_lineas enable row level security;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['solicitudes', 'solicitud_lineas'] loop
+    execute format('drop policy if exists "acceso_autenticado" on public.%I', t);
+    execute format(
+      'create policy "acceso_autenticado" on public.%I
+         for all to authenticated using (true) with check (true)', t);
+  end loop;
+end $$;
+
+drop trigger if exists trg_solicitudes_updated_at on public.solicitudes;
+create trigger trg_solicitudes_updated_at
+  before update on public.solicitudes
+  for each row execute function public.tg_set_updated_at();
+
+-- NOTA: la función disponibilidad_trimestral() se define en la migración
+-- "motor_disponibilidad_trimestral_v2". Encadena los cuatro trimestres con un
+-- CTE recursivo porque lo disponible en T depende de cuánto sobró y se salvó
+-- en T-1. Ver supabase/migrations para el cuerpo completo.
+
+-- ============================================================================
+-- 11. Jerarquía HZ → CeCo → OI, imputación exclusiva y vigencia
+-- ============================================================================
+-- Una Hunting Zone tiene n Centros de Costo; un CeCo tiene n Órdenes Internas.
+-- Un gasto se imputa a UNA OI **o** a UN CeCo, nunca a los dos: cuando hay OI,
+-- el CeCo se deduce del padre y no se guarda repetido.
+
+alter table public.cecos
+  add column if not exists id_hunting_zone uuid
+    references public.hunting_zones(id) on delete restrict;
+create index if not exists idx_cecos_hz on public.cecos(id_hunting_zone);
+
+-- Vigencia de las órdenes internas: una OI puede durar un mes, un año fiscal o
+-- lo que dure un proyecto. Los selectores filtran por la fecha en juego para
+-- que no se pueda imputar un gasto a una orden vencida.
+alter table public.ordenes_internas
+  add column if not exists vigencia_desde date,
+  add column if not exists vigencia_hasta date;
+
+do $$ begin
+  alter table public.ordenes_internas add constraint oi_vigencia_coherente
+    check (vigencia_desde is null or vigencia_hasta is null or vigencia_desde <= vigencia_hasta);
+exception when duplicate_object then null; end $$;
+
+alter table public.facturas_preregistradas
+  add column if not exists id_ceco uuid references public.cecos(id) on delete set null;
+create index if not exists idx_fp_ceco on public.facturas_preregistradas(id_ceco);
+
+do $$ begin
+  alter table public.gastos add constraint gastos_imputacion_exclusiva
+    check (id_oi is null or id_ceco is null);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table public.facturas_preregistradas add constraint fp_imputacion_exclusiva
+    check (id_oi is null or id_ceco is null);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table public.presupuestos add constraint presupuestos_imputacion_exclusiva
+    check (id_oi is null or id_ceco is null);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table public.solicitudes add constraint solicitudes_imputacion_exclusiva
+    check (id_oi is null or id_ceco is null);
+exception when duplicate_object then null; end $$;
+
+-- v_gastos_enriquecidos expone el "CeCo efectivo": el imputado directo o, si el
+-- gasto va a una OI, el del padre. Ver la migración "vistas_ceco_efectivo".

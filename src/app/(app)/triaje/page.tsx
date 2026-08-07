@@ -4,6 +4,11 @@ import {
   type OpcionAsignacion,
   type Sugerencias,
 } from "@/components/triaje/TablaTriaje";
+import {
+  etiquetaVigencia,
+  vigenteEnFecha,
+  type ConVigencia,
+} from "@/lib/presupuesto/vigencia";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Triaje — IENN Gastos App" };
@@ -20,7 +25,7 @@ const moneda = new Intl.NumberFormat("es-VE", {
 export default async function TriajePage() {
   const supabase = await createSupabaseServerClient();
 
-  const [pendientes, conteo, ois, tags, hzs, valores] = await Promise.all([
+  const [pendientes, conteo, ois, tags, hzs, cecos, valores] = await Promise.all([
     supabase
       .from("v_gastos_enriquecidos")
       .select(
@@ -35,7 +40,7 @@ export default async function TriajePage() {
       .eq("estado_revision", "pendiente"),
     supabase
       .from("ordenes_internas")
-      .select("codigo_oi, nombre, id_hunting_zone")
+      .select("codigo_oi, nombre, id_hunting_zone, vigencia_desde, vigencia_hasta")
       .eq("activo", true)
       .order("codigo_oi"),
     supabase
@@ -44,6 +49,7 @@ export default async function TriajePage() {
       .eq("activo", true)
       .order("tag"),
     supabase.from("hunting_zones").select("id, nombre"),
+    supabase.from("cecos").select("codigo_sap, nombre, id_hunting_zone").eq("activo", true).order("codigo_sap"),
     supabase
       .from("v_valores_taxonomia")
       .select("campo, valor")
@@ -67,12 +73,29 @@ export default async function TriajePage() {
   // gana la OI, que es la que arrastra CeCo además de Hunting Zone.
   const porValor = new Map<string, OpcionAsignacion>();
 
+  // Solo se ofrecen las órdenes vigentes hoy: no tiene sentido imputar un
+  // gasto a una OI que ya venció.
+  const hoy = new Date();
   for (const o of ois.data ?? []) {
+    if (!vigenteEnFecha(o as unknown as ConVigencia, hoy)) continue;
     const valor = o.codigo_oi as string;
+    const rango = etiquetaVigencia(o as unknown as ConVigencia);
     porValor.set(valor, {
       valor,
       descripcion: `OI · ${
         hzPorId.get(o.id_hunting_zone as string) ?? (o.nombre as string) ?? "sin proyecto"
+      }${rango ? ` · ${rango}` : ""}`,
+    });
+  }
+
+  // Centros de costo: el gasto se imputa al CeCo cuando la HZ no usa OIs.
+  for (const c of cecos.data ?? []) {
+    const valor = c.codigo_sap as string;
+    if (porValor.has(valor)) continue;
+    porValor.set(valor, {
+      valor,
+      descripcion: `CeCo · ${
+        hzPorId.get(c.id_hunting_zone as string) ?? (c.nombre as string) ?? "sin proyecto"
       }`,
     });
   }
@@ -103,10 +126,11 @@ export default async function TriajePage() {
       <header>
         <h1 className="text-2xl font-semibold text-slate-900">Sala de Triaje</h1>
         <p className="mt-2 max-w-3xl text-sm text-slate-600">
-          Completá la información que SAP no trae. En la columna de asignación va{" "}
-          <span className="font-mono">cualquier Orden Interna</span> del sistema, o una
-          etiqueta (<span className="font-mono">#CAM</span>) cuando el gasto vino con CeCo
-          y sin OI. Fase, Motivo y Detalle son campos libres que sugieren los valores ya
+          Completa la información que SAP no trae. En la columna de asignación va una{" "}
+          <span className="font-mono">Orden Interna vigente</span>, un{" "}
+          <span className="font-mono">Centro de Costo</span> o una etiqueta (
+          <span className="font-mono">#CAM</span>). Un gasto se imputa a una OI o a un
+          CeCo, nunca a los dos. Fase, Motivo y Detalle son campos libres que sugieren los valores ya
           usados.
         </p>
 

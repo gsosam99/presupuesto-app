@@ -4,6 +4,13 @@ import {
   type OpcionOi,
   type Sugerencias,
 } from "@/components/facturas/FormularioFactura";
+import { etiquetaTrimestre, trimestreActual } from "@/lib/fiscal";
+import { obtenerDisponibilidad } from "@/lib/presupuesto/disponibilidad";
+import {
+  etiquetaVigencia,
+  vigenteEnFy,
+  type ConVigencia,
+} from "@/lib/presupuesto/vigencia";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Facturas — IENN Gastos App" };
@@ -27,13 +34,32 @@ const moneda = new Intl.NumberFormat("es-VE", {
   maximumFractionDigits: 2,
 });
 
+function fyActual(hoy = new Date()): number {
+  return hoy.getFullYear() - (hoy.getMonth() + 1 >= 10 ? 0 : 1);
+}
+
 export default async function FacturasPage() {
   const supabase = await createSupabaseServerClient();
+
+  const fy = fyActual();
+  const tActual = trimestreActual();
+
+  // Fondos del trimestre en curso por OI: se muestran al elegir la orden, que
+  // es el momento en que hace falta saber si alcanza.
+  const disponibilidad = await obtenerDisponibilidad(supabase, fy).catch(() => []);
+  const fondosPorOi = new Map(
+    disponibilidad
+      .filter((d) => d.trimestre === tActual && d.id_oi)
+      .map((d) => [
+        d.id_oi as string,
+        { saldo: d.saldo, disponible: d.disponible, consumido: d.consumido },
+      ]),
+  );
 
   const [ois, hzs, tax, conciliacion] = await Promise.all([
     supabase
       .from("ordenes_internas")
-      .select("id, codigo_oi, nombre, id_hunting_zone")
+      .select("id, codigo_oi, nombre, id_hunting_zone, vigencia_desde, vigencia_hasta")
       .eq("activo", true)
       .order("codigo_oi"),
     supabase
@@ -55,15 +81,26 @@ export default async function FacturasPage() {
     (hzs.data ?? []).map((h) => [h.id as string, h.nombre as string]),
   );
 
-  const ordenesInternas: OpcionOi[] = (ois.data ?? []).map((o) => ({
-    id: o.id as string,
-    codigo: o.codigo_oi as string,
-    nombre: (o.nombre as string | null) ?? null,
-    idHuntingZone: (o.id_hunting_zone as string | null) ?? null,
-    huntingZone: o.id_hunting_zone
-      ? (hzPorId.get(o.id_hunting_zone as string) ?? null)
-      : null,
-  }));
+  // Solo las órdenes vigentes en el año fiscal en curso: registrar una factura
+  // contra una OI vencida no tiene sentido.
+  const ordenesInternas: OpcionOi[] = (ois.data ?? [])
+    .filter((o) => vigenteEnFy(o as unknown as ConVigencia, fy))
+    .map((o) => {
+    const fondos = fondosPorOi.get(o.id as string);
+    return {
+      id: o.id as string,
+      codigo: o.codigo_oi as string,
+      nombre: (o.nombre as string | null) ?? null,
+      idHuntingZone: (o.id_hunting_zone as string | null) ?? null,
+      huntingZone: o.id_hunting_zone
+        ? (hzPorId.get(o.id_hunting_zone as string) ?? null)
+        : null,
+      saldoTrimestre: fondos?.saldo ?? null,
+      disponibleTrimestre: fondos?.disponible ?? null,
+      consumidoTrimestre: fondos?.consumido ?? null,
+      vigencia: etiquetaVigencia(o as unknown as ConVigencia),
+    };
+  });
 
   const valores = (tax.data ?? []) as unknown as Array<{ campo: string; valor: string }>;
   const sugerencias: Sugerencias = {
@@ -79,7 +116,7 @@ export default async function FacturasPage() {
       <header>
         <h1 className="text-2xl font-semibold text-slate-900">Pre-registro de facturas</h1>
         <p className="mt-2 max-w-3xl text-sm text-slate-600">
-          Registrá cada factura a medida que llega a finanzas. Cuando cargues el reporte
+          Registra cada factura a medida que llega a finanzas. Cuando cargues el reporte
           mensual de SAP, el cruce por número de factura le aplica al gasto la Orden
           Interna y la taxonomía que definiste acá, sin pasar por el triaje. Una misma
           factura puede cruzar con varias posiciones de SAP.
@@ -87,7 +124,11 @@ export default async function FacturasPage() {
       </header>
 
       <section className="mt-8">
-        <FormularioFactura ordenesInternas={ordenesInternas} sugerencias={sugerencias} />
+        <FormularioFactura
+          ordenesInternas={ordenesInternas}
+          sugerencias={sugerencias}
+          trimestreActual={etiquetaTrimestre(tActual)}
+        />
       </section>
 
       <section className="mt-6">

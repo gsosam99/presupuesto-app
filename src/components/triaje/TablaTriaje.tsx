@@ -664,7 +664,7 @@ export function TablaTriaje({
         <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
           {filtro
             ? "Ningún gasto coincide con la búsqueda."
-            : "Lote resuelto. Recargá para traer los siguientes pendientes."}
+            : "Lote resuelto. Recarga para traer los siguientes pendientes."}
         </p>
       )}
     </div>

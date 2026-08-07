@@ -184,7 +184,7 @@ export function SubidaPresupuesto() {
             <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
               Órdenes internas que no están en la maestra:{" "}
               <span className="font-mono">{resumen.oisDesconocidas.join(", ")}</span>. Esas
-              líneas no se cargaron: agregá la OI y volvé a subir el archivo.
+              líneas no se cargaron: agrega la OI y vuelve a subir el archivo.
             </p>
           )}
 
