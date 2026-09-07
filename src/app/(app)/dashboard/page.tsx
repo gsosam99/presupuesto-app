@@ -1,4 +1,4 @@
-import { DashboardIENN } from "@/components/dashboard/DashboardIENN";
+import { DashboardIENNCliente } from "@/components/dashboard/DashboardIENNCliente";
 import { obtenerDatosDashboard } from "@/lib/dashboard/datos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -27,5 +27,5 @@ export default async function DashboardPage({
     );
   }
 
-  return <DashboardIENN datos={datos} enPresentacion={enPresentacion} />;
+  return <DashboardIENNCliente datos={datos} enPresentacion={enPresentacion} />;
 }

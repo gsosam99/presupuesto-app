@@ -4,6 +4,8 @@ import { useCallback, useMemo, useRef, useState, type KeyboardEvent } from "reac
 import { useRouter } from "next/navigation";
 
 import { CampoSugerido, ListaSugerencias } from "@/components/ui/CampoSugerido";
+import { CONTROL_CELDA } from "@/components/ui/estilos";
+import { moneda } from "@/lib/format";
 
 export interface GastoPendiente {
   id: string;
@@ -66,16 +68,8 @@ type Columna =
 
 const POR_PAGINA = [25, 50, 100, 250] as const;
 
-const moneda = new Intl.NumberFormat("es-VE", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
 /** Celdas compactas: la grilla prioriza densidad y hace scroll horizontal. */
-const CELDA =
-  "block w-full rounded border border-[var(--line)] bg-white px-1.5 py-1 text-xs " +
-  "text-[var(--ink)] focus:outline-none focus:border-[var(--blue)] " +
-  "focus:ring-2 focus:ring-[rgba(46,117,182,0.18)]";
+const CELDA = CONTROL_CELDA;
 
 function valorColumna(g: GastoPendiente, c: Columna): string | number {
   switch (c) {

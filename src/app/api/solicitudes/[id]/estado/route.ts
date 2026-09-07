@@ -1,13 +1,16 @@
+import { z } from "zod";
+
+import { requireApiUser } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { EstadoSolicitud } from "@/types";
 
 export const runtime = "nodejs";
 
-interface Cuerpo {
-  estado?: EstadoSolicitud;
-  referencia_aprobacion?: string | null;
-  nota_resolucion?: string | null;
-}
+const cuerpoSchema = z.object({
+  estado: z.enum(["borrador", "enviada", "aprobada", "rechazada"]),
+  referencia_aprobacion: z.string().nullable().optional(),
+  nota_resolucion: z.string().nullable().optional(),
+});
 
 /** Transiciones permitidas. Fuera de esto, el cambio se rechaza. */
 const TRANSICIONES: Record<EstadoSolicitud, EstadoSolicitud[]> = {
@@ -31,12 +34,18 @@ export async function PATCH(
   try {
     const { id } = await params;
     const supabase = await createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return Response.json({ error: "No autenticado" }, { status: 401 });
+    const auth = await requireApiUser(supabase);
+    if ("response" in auth) return auth.response;
 
-    const cuerpo = (await request.json()) as Cuerpo;
+    const parsed = cuerpoSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return Response.json(
+        { error: parsed.error.issues[0]?.message ?? "Datos inválidos" },
+        { status: 400 },
+      );
+    }
+    const cuerpo = parsed.data;
     const destino = cuerpo.estado;
-    if (!destino) return Response.json({ error: "Falta el estado" }, { status: 400 });
 
     const { data: solicitud, error: errorLectura } = await supabase
       .from("solicitudes")
@@ -45,7 +54,8 @@ export async function PATCH(
       .maybeSingle();
 
     if (errorLectura) {
-      return Response.json({ error: errorLectura.message }, { status: 400 });
+      console.error("[PATCH /api/solicitudes/:id/estado]", errorLectura);
+      return Response.json({ error: "No se pudo leer la solicitud." }, { status: 400 });
     }
     if (!solicitud) {
       return Response.json({ error: "La solicitud no existe" }, { status: 404 });
@@ -61,11 +71,19 @@ export async function PATCH(
 
     // --- Al aprobar un extra plan, sus líneas entran al presupuesto ---------
     if (destino === "aprobada" && solicitud.tipo === "extra_plan") {
-      const { data: yaCargado } = await supabase
+      const { data: yaCargado, error: errorYaCargado } = await supabase
         .from("presupuestos")
         .select("id")
         .eq("id_solicitud", id)
         .limit(1);
+
+      if (errorYaCargado) {
+        console.error("[PATCH /api/solicitudes/:id/estado]", errorYaCargado);
+        return Response.json(
+          { error: "No se pudo verificar si ya se había cargado." },
+          { status: 400 },
+        );
+      }
 
       if ((yaCargado ?? []).length === 0) {
         const { data: lineas, error: errorLineas } = await supabase
@@ -74,7 +92,11 @@ export async function PATCH(
           .eq("id_solicitud", id);
 
         if (errorLineas) {
-          return Response.json({ error: errorLineas.message }, { status: 400 });
+          console.error("[PATCH /api/solicitudes/:id/estado]", errorLineas);
+          return Response.json(
+            { error: "No se pudieron leer las líneas de la solicitud." },
+            { status: 400 },
+          );
         }
         if ((lineas ?? []).length === 0) {
           return Response.json(
@@ -87,22 +109,23 @@ export async function PATCH(
           (lineas ?? []).map((l) => ({
             id_oi: solicitud.id_oi,
             id_ceco: solicitud.id_ceco,
-            tipo: "extra_plan",
+            tipo: "extra_plan" as const,
             fy: solicitud.fy,
-            mes: l.mes,
-            monto: l.monto,
-            cuenta_contable: l.cuenta_contable,
-            descripcion_cuenta: l.descripcion_cuenta,
-            tipo_gasto: l.tipo_gasto,
-            detalle_gasto: l.detalle_gasto,
-            responsable: l.responsable,
+            mes: Number(l.mes),
+            monto: Number(l.monto),
+            cuenta_contable: l.cuenta_contable as string | null,
+            descripcion_cuenta: l.descripcion_cuenta as string | null,
+            tipo_gasto: l.tipo_gasto as string | null,
+            detalle_gasto: l.detalle_gasto as string | null,
+            responsable: l.responsable as string | null,
             id_solicitud: id,
           })),
         );
 
         if (errorCarga) {
+          console.error("[PATCH /api/solicitudes/:id/estado]", errorCarga);
           return Response.json(
-            { error: `No se pudo cargar al presupuesto: ${errorCarga.message}` },
+            { error: "No se pudo cargar al presupuesto." },
             { status: 400 },
           );
         }
@@ -117,15 +140,23 @@ export async function PATCH(
         .eq("id_solicitud", id);
 
       if (errorBorrado) {
+        console.error("[PATCH /api/solicitudes/:id/estado]", errorBorrado);
         return Response.json(
-          { error: `No se pudo revertir la carga: ${errorBorrado.message}` },
+          { error: "No se pudo revertir la carga." },
           { status: 400 },
         );
       }
     }
 
     const ahora = new Date().toISOString();
-    const cambios: Record<string, string | null> = { estado: destino };
+    const cambios: {
+      estado: EstadoSolicitud;
+      enviada_at?: string | null;
+      resuelta_at?: string | null;
+      resuelta_por?: string | null;
+      referencia_aprobacion?: string | null;
+      nota_resolucion?: string | null;
+    } = { estado: destino };
 
     if (destino === "enviada" && actual === "borrador") cambios.enviada_at = ahora;
     if (destino === "aprobada" || destino === "rechazada") {
@@ -150,7 +181,8 @@ export async function PATCH(
       .eq("id", id);
 
     if (errorUpdate) {
-      return Response.json({ error: errorUpdate.message }, { status: 400 });
+      console.error("[PATCH /api/solicitudes/:id/estado]", errorUpdate);
+      return Response.json({ error: "No se pudo guardar el cambio de estado." }, { status: 400 });
     }
 
     return Response.json({ estado: destino });

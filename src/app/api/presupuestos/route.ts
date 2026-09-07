@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { requireApiUser } from "@/lib/auth";
 import { importarPresupuestoExcel } from "@/lib/ingesta/presupuestos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { TipoPresupuesto } from "@/types";
@@ -12,8 +13,8 @@ const MAX_BYTES = 25 * 1024 * 1024;
 export async function POST(request: Request): Promise<Response> {
   try {
     const supabase = await createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return Response.json({ error: "No autenticado" }, { status: 401 });
+    const auth = await requireApiUser(supabase);
+    if ("response" in auth) return auth.response;
 
     const formData = await request.formData();
     const archivo = formData.get("archivo");
@@ -41,13 +42,18 @@ export async function POST(request: Request): Promise<Response> {
     // el usuario lo pida explícitamente. Sin esto, volver a subir el Plan
     // duplicaría todas las líneas presupuestarias.
     if (!forzar) {
-      const { data: previa } = await supabase
+      const { data: previa, error: errorPrevia } = await supabase
         .from("cargas")
         .select("created_at")
         .eq("hash_archivo", hash)
         .eq("estado", "completada")
         .limit(1)
         .maybeSingle();
+
+      if (errorPrevia) {
+        console.error("[POST /api/presupuestos]", errorPrevia);
+        return Response.json({ error: "No se pudo verificar la carga previa." }, { status: 400 });
+      }
 
       if (previa) {
         return Response.json(

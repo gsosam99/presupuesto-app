@@ -16,9 +16,27 @@
 import ExcelJS from "exceljs";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { montoCelda, normalizarHeader, textoCelda } from "@/lib/excel/celdas";
 import type { Database } from "@/types/supabase";
 
 type Cliente = SupabaseClient<Database>;
+
+interface RegistroFactura {
+  numero_factura: string;
+  proveedor_codigo: string | null;
+  texto_referencia: string | null;
+  fecha_factura: string | null;
+  id_oi: string | null;
+  id_hunting_zone: string | null;
+  fase: string | null;
+  motivo: string | null;
+  detalle: string | null;
+  monto_estimado: number | null;
+  moneda: string;
+  nota: string | null;
+  id_carga: string;
+  creado_por: string | null;
+}
 
 export interface ResumenCargaFacturas {
   idCarga: string;
@@ -27,15 +45,6 @@ export interface ResumenCargaFacturas {
   insertadas: number;
   rechazadas: number;
   rechazos: Array<{ fila: number; motivo: string }>;
-}
-
-function normalizarHeader(texto: string): string {
-  return texto
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
 }
 
 const ALIAS: Record<string, string[]> = {
@@ -59,18 +68,6 @@ const ALIAS: Record<string, string[]> = {
   nota: ["nota", "observacion", "observaciones"],
 };
 
-function textoCelda(valor: ExcelJS.CellValue): string | null {
-  if (valor === null || valor === undefined) return null;
-  if (typeof valor === "object") {
-    if ("result" in valor) return textoCelda((valor as { result: ExcelJS.CellValue }).result);
-    if ("text" in valor) return String((valor as { text: unknown }).text).trim() || null;
-    if (valor instanceof Date) return valor.toISOString().slice(0, 10);
-    return null;
-  }
-  const s = String(valor).trim();
-  return s === "" ? null : s;
-}
-
 function fechaCelda(valor: ExcelJS.CellValue): string | null {
   if (valor instanceof Date && !Number.isNaN(valor.getTime())) {
     return valor.toISOString().slice(0, 10);
@@ -82,26 +79,6 @@ function fechaCelda(valor: ExcelJS.CellValue): string | null {
   if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
   return null;
-}
-
-function montoCelda(valor: ExcelJS.CellValue): number | null {
-  if (typeof valor === "number") return Number.isFinite(valor) ? valor : null;
-  const s = textoCelda(valor);
-  if (s === null) return null;
-  const limpio = s.replace(/[^\d,.-]/g, "");
-  const tieneComa = limpio.includes(",");
-  const tienePunto = limpio.includes(".");
-  let n = limpio;
-  if (tieneComa && tienePunto) {
-    n =
-      limpio.lastIndexOf(",") > limpio.lastIndexOf(".")
-        ? limpio.replace(/\./g, "").replace(",", ".")
-        : limpio.replace(/,/g, "");
-  } else if (tieneComa) {
-    n = limpio.replace(",", ".");
-  }
-  const num = Number(n);
-  return Number.isFinite(num) ? num : null;
 }
 
 export async function importarFacturasExcel(
@@ -164,7 +141,7 @@ export async function importarFacturasExcel(
   }
   const idCarga = carga.id as string;
 
-  const registros: Array<Record<string, string | number | null>> = [];
+  const registros: RegistroFactura[] = [];
   const rechazos: Array<{ fila: number; motivo: string }> = [];
   let filasLeidas = 0;
 

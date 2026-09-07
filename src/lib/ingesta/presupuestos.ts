@@ -17,6 +17,7 @@
 import ExcelJS from "exceljs";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { montoCelda, normalizarHeader, textoCelda as textoCeldaBase } from "@/lib/excel/celdas";
 import { fyDeFecha } from "@/lib/fiscal";
 import type { Database } from "@/types/supabase";
 import type { TipoPresupuesto } from "@/types";
@@ -24,6 +25,23 @@ import type { TipoPresupuesto } from "@/types";
 type Cliente = SupabaseClient<Database>;
 
 const LOTE = 500;
+
+interface RegistroPresupuesto {
+  id_oi: string;
+  tipo: TipoPresupuesto;
+  fy: number;
+  mes: number;
+  quarter: string | null;
+  monto: number;
+  cuenta_contable: string | null;
+  descripcion_cuenta: string | null;
+  tipo_gasto: string | null;
+  detalle_gasto: string | null;
+  responsable: string | null;
+  area: string | null;
+  ceco_declarado: string | null;
+  id_carga: string;
+}
 
 export interface ResumenCargaPresupuesto {
   idCarga: string;
@@ -39,13 +57,9 @@ export interface ResumenCargaPresupuesto {
   rechazos: Array<{ fila: number; motivo: string }>;
 }
 
-function normalizarHeader(texto: string): string {
-  return texto
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
+/** Acá "-" también cuenta como celda vacía (formato de Extra Plan la usa así). */
+function textoCelda(valor: ExcelJS.CellValue): string | null {
+  return textoCeldaBase(valor, { tratarGuionComoVacio: true });
 }
 
 const ALIAS: Record<string, string[]> = {
@@ -61,18 +75,6 @@ const ALIAS: Record<string, string[]> = {
   monto: ["$presupuesto", "presupuesto", "monto", "$ presupuesto"],
   responsable: ["responsable"],
 };
-
-function textoCelda(valor: ExcelJS.CellValue): string | null {
-  if (valor === null || valor === undefined) return null;
-  if (valor instanceof Date) return valor.toISOString().slice(0, 10);
-  if (typeof valor === "object") {
-    if ("result" in valor) return textoCelda((valor as { result: ExcelJS.CellValue }).result);
-    if ("text" in valor) return String((valor as { text: unknown }).text).trim() || null;
-    return null;
-  }
-  const s = String(valor).trim();
-  return s === "" || s === "-" ? null : s;
-}
 
 /** Devuelve {anio, mes} desde una celda que puede ser fecha, serial o texto. */
 function periodoCelda(valor: ExcelJS.CellValue): { anio: number; mes: number } | null {
@@ -95,27 +97,6 @@ function periodoCelda(valor: ExcelJS.CellValue): { anio: number; mes: number } |
   if (m) return { anio: Number(m[3]), mes: Number(m[2]) };
 
   return null;
-}
-
-function montoCelda(valor: ExcelJS.CellValue): number | null {
-  if (typeof valor === "number") return Number.isFinite(valor) ? valor : null;
-  const s = textoCelda(valor);
-  if (s === null) return null;
-
-  const limpio = s.replace(/[^\d,.-]/g, "");
-  const tieneComa = limpio.includes(",");
-  const tienePunto = limpio.includes(".");
-  let n = limpio;
-  if (tieneComa && tienePunto) {
-    n =
-      limpio.lastIndexOf(",") > limpio.lastIndexOf(".")
-        ? limpio.replace(/\./g, "").replace(",", ".")
-        : limpio.replace(/,/g, "");
-  } else if (tieneComa) {
-    n = limpio.replace(",", ".");
-  }
-  const num = Number(n);
-  return Number.isFinite(num) ? num : null;
 }
 
 /**
@@ -206,7 +187,7 @@ export async function importarPresupuestoExcel(
   }
   const idCarga = carga.id as string;
 
-  const registros: Array<Record<string, string | number | null>> = [];
+  const registros: RegistroPresupuesto[] = [];
   const rechazos: Array<{ fila: number; motivo: string }> = [];
   const oisDesconocidas = new Set<string>();
   let filasLeidas = 0;

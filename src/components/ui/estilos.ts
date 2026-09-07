@@ -16,6 +16,18 @@ export const CONTROL_COMPACTO =
   "text-[var(--ink)] placeholder:text-[var(--muted)] focus:outline-none " +
   "focus:border-[var(--blue)] focus:ring-2 focus:ring-[rgba(46,117,182,0.18)]";
 
+/** Celda de grilla ultra-densa (Tablas maestras, Sala de Triaje): sin altura fija. */
+export const CONTROL_CELDA =
+  "block w-full rounded border border-[var(--line)] bg-white px-1.5 py-1 text-xs " +
+  "text-[var(--ink)] focus:border-[var(--blue)] focus:outline-none " +
+  "focus:ring-2 focus:ring-[rgba(46,117,182,0.18)]";
+
+/** Variante de CONTROL para <textarea>: mismos tokens, sin altura fija. */
+export const CONTROL_TEXTAREA =
+  "mt-1 block w-full rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm " +
+  "text-[var(--ink)] focus:border-[var(--blue)] focus:outline-none " +
+  "focus:ring-2 focus:ring-[rgba(46,117,182,0.18)]";
+
 export const ETIQUETA = "block text-sm font-semibold text-[var(--ink-soft)]";
 
 export const AYUDA = "mt-1 text-xs text-[var(--muted)]";

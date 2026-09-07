@@ -1,20 +1,12 @@
 import Link from "next/link";
 
-import { etiquetaTrimestre, fyEtiqueta, trimestreActual } from "@/lib/fiscal";
+import { etiquetaTrimestre, fyActual, fyEtiqueta, trimestreActual } from "@/lib/fiscal";
+import { moneda } from "@/lib/format";
 import { agruparPorUnidad, obtenerDisponibilidad } from "@/lib/presupuesto/disponibilidad";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Fondos — IENN Gastos App" };
 export const dynamic = "force-dynamic";
-
-const moneda = new Intl.NumberFormat("es-VE", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
-function fyActual(hoy = new Date()): number {
-  return hoy.getFullYear() - (hoy.getMonth() + 1 >= 10 ? 0 : 1);
-}
 
 export default async function FondosPage({
   searchParams,
@@ -34,6 +26,7 @@ export default async function FondosPage({
 
   const unidades = agruparPorUnidad(filas);
   const fys = ((anios.data ?? []) as Array<{ fy: number }>).map((a) => a.fy);
+  const errorCarga = anios.error ?? null;
 
   const totalDisponibleHoy = unidades.reduce((s, u) => s + u.saldoActual, 0);
   const totalPorHabilitar = unidades.reduce((s, u) => s + u.porHabilitar, 0);
@@ -93,6 +86,12 @@ export default async function FondosPage({
           </p>
         </article>
       </section>
+
+      {errorCarga && (
+        <p className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          No se pudieron cargar los años fiscales: {errorCarga.message}
+        </p>
+      )}
 
       {sinPresupuesto && (
         <p className="mt-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">

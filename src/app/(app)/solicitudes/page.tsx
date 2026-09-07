@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { etiquetaTrimestre, fyEtiqueta } from "@/lib/fiscal";
+import { moneda } from "@/lib/format";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { EstadoSolicitud, TipoSolicitud } from "@/types";
 
@@ -18,11 +19,6 @@ interface Fila {
   created_at: string;
   id_oi: string | null;
 }
-
-const moneda = new Intl.NumberFormat("es-VE", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
 
 const ESTILO_ESTADO: Record<EstadoSolicitud, string> = {
   borrador: "bg-[var(--line-soft)] text-[var(--ink-soft)]",
@@ -52,6 +48,7 @@ export default async function SolicitudesPage() {
   );
 
   const pendientes = filas.filter((f) => f.estado === "enviada");
+  const errorCarga = solicitudes.error ?? ois.error ?? null;
 
   return (
     <main className="mx-auto w-full max-w-[1240px] px-5 py-8">
@@ -81,6 +78,12 @@ export default async function SolicitudesPage() {
           </Link>
         </div>
       </header>
+
+      {errorCarga && (
+        <p className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          No se pudieron cargar las solicitudes: {errorCarga.message}
+        </p>
+      )}
 
       {pendientes.length > 0 && (
         <p className="mt-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">

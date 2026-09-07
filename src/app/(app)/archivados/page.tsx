@@ -2,15 +2,11 @@ import {
   TablaArchivados,
   type GastoArchivado,
 } from "@/components/archivados/TablaArchivados";
+import { moneda } from "@/lib/format";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Archivados — IENN Gastos App" };
 export const dynamic = "force-dynamic";
-
-const moneda = new Intl.NumberFormat("es-VE", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
 
 export default async function ArchivadosPage() {
   const supabase = await createSupabaseServerClient();

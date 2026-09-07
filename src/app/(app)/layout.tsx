@@ -12,6 +12,7 @@ const NAVEGACION = [
   ["/solicitudes", "Solicitudes"],
   ["/archivados", "Archivados"],
   ["/presupuestos", "Presupuestos"],
+  ["/configuracion", "Configuración"],
 ] as const;
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {

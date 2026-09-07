@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRef } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { useCargaArchivo } from "@/hooks/useCargaArchivo";
 
 interface Resumen {
   idCarga: string;
@@ -30,51 +30,9 @@ const COLUMNAS = [
 ];
 
 export function CargaMasivaFacturas() {
-  const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [subiendo, setSubiendo] = useState(false);
-  const [resumen, setResumen] = useState<Resumen | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [yaCargado, setYaCargado] = useState<{ archivo: string; cargadoEl: string } | null>(null);
-  const [ultimo, setUltimo] = useState<File | null>(null);
-
-  async function subir(archivo: File, forzar = false) {
-    setUltimo(archivo);
-    setSubiendo(true);
-    setError(null);
-    setResumen(null);
-    setYaCargado(null);
-
-    try {
-      const formData = new FormData();
-      formData.append("archivo", archivo);
-      if (forzar) formData.append("forzar", "true");
-
-      const res = await fetch("/api/facturas/carga", { method: "POST", body: formData });
-      const json = (await res.json()) as {
-        resumen?: Resumen;
-        error?: string;
-        yaCargado?: { archivo: string; cargadoEl: string };
-      };
-
-      if (res.status === 409 && json.yaCargado) {
-        setYaCargado(json.yaCargado);
-        return;
-      }
-
-      if (!res.ok || !json.resumen) {
-        setError(json.error ?? "No se pudo procesar el archivo.");
-        return;
-      }
-
-      setResumen(json.resumen);
-      router.refresh();
-    } catch {
-      setError("No se pudo conectar con el servidor.");
-    } finally {
-      setSubiendo(false);
-    }
-  }
+  const { subiendo, resumen, error, yaCargado, ultimo, subir } =
+    useCargaArchivo<Resumen>("/api/facturas/carga");
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -135,7 +93,7 @@ export function CargaMasivaFacturas() {
             variante="secundario"
             className="mt-2"
             disabled={subiendo || !ultimo}
-            onClick={() => ultimo && void subir(ultimo, true)}
+            onClick={() => ultimo && void subir(ultimo, { forzar: true })}
           >
             Cargar igual
           </Button>

@@ -1,5 +1,6 @@
 import { SubidaPresupuesto } from "@/components/presupuestos/SubidaPresupuesto";
 import { fyEtiqueta, nombreMes } from "@/lib/fiscal";
+import { moneda } from "@/lib/format";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Presupuestos — IENN Gastos App" };
@@ -13,15 +14,10 @@ interface FilaPresupuesto {
   monto_total: number;
 }
 
-const moneda = new Intl.NumberFormat("es-VE", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
 export default async function PresupuestosPage() {
   const supabase = await createSupabaseServerClient();
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("v_presupuesto_oi_mes")
     .select("fy, mes, monto_plan, monto_suplemento_extra_plan, monto_total");
 
@@ -57,6 +53,12 @@ export default async function PresupuestosPage() {
           motivo en vez de cargarse a ciegas.
         </p>
       </header>
+
+      {error && (
+        <p className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          No se pudo cargar el presupuesto: {error.message}
+        </p>
+      )}
 
       <section className="mt-8">
         <SubidaPresupuesto />

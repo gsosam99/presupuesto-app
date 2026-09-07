@@ -4,6 +4,7 @@ import { useCallback, useRef, useState, type DragEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/Button";
+import { moneda } from "@/lib/format";
 
 interface Resumen {
   idCarga: string;
@@ -32,11 +33,6 @@ interface Respuesta {
   yaCargados: Array<{ archivo: string; cargadoEl: string }>;
   error?: string;
 }
-
-const moneda = new Intl.NumberFormat("es-VE", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
 
 export function SubidaSap() {
   const router = useRouter();

@@ -28,32 +28,9 @@ import {
 } from "chart.js";
 
 import { MenuExportar } from "@/components/dashboard/MenuExportar";
+import type { DatosDashboard, RegistroDashboard } from "@/types";
 
 Chart.register(...registerables);
-
-// ---------------------------------------------------------------------------
-// Datos
-// ---------------------------------------------------------------------------
-
-export interface RegistroDashboard {
-  af: string;
-  fase: string;
-  hz: string;
-  motivo: string;
-  detalle: string;
-  monto: number;
-  n: number;
-}
-
-export interface DatosDashboard {
-  anios: string[];
-  currentFY: string;
-  fases: string[];
-  hzs: string[];
-  monthlyCurrent: Record<string, number>;
-  asof: string;
-  records: RegistroDashboard[];
-}
 
 const PALETTE = [
   "#2E75B6", "#2FB9CE", "#E0A93E", "#1E8A8A", "#9E2B33", "#A97C86",

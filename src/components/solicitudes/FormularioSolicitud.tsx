@@ -4,7 +4,13 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/Button";
-import { AYUDA, CONTROL, CONTROL_COMPACTO, ETIQUETA } from "@/components/ui/estilos";
+import {
+  AYUDA,
+  CONTROL,
+  CONTROL_COMPACTO,
+  CONTROL_TEXTAREA,
+  ETIQUETA,
+} from "@/components/ui/estilos";
 import { etiquetaTrimestre, mesesDeTrimestre, nombreMes } from "@/lib/fiscal";
 import type { TipoSolicitud } from "@/types";
 
@@ -17,6 +23,8 @@ export interface OpcionOi {
 }
 
 interface Linea {
+  /** Solo para el `key` de React: no viaja a la API. */
+  id: string;
   mes: number;
   monto: string;
   cuenta_contable: string;
@@ -40,6 +48,7 @@ const MESES_FY = [10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 function lineaVacia(mes: number): Linea {
   return {
+    id: crypto.randomUUID(),
     mes,
     monto: "",
     cuenta_contable: "",
@@ -103,7 +112,15 @@ export function FormularioSolicitud({
           tipo === "extra_plan"
             ? lineas
                 .filter((l) => Number(l.monto) > 0)
-                .map((l) => ({ ...l, monto: Number(l.monto) }))
+                .map((l) => ({
+                  mes: l.mes,
+                  monto: Number(l.monto),
+                  cuenta_contable: l.cuenta_contable,
+                  descripcion_cuenta: l.descripcion_cuenta,
+                  tipo_gasto: l.tipo_gasto,
+                  detalle_gasto: l.detalle_gasto,
+                  responsable: l.responsable,
+                }))
             : [],
       }),
     });
@@ -252,7 +269,7 @@ export function FormularioSolicitud({
               </thead>
               <tbody>
                 {lineas.map((l, i) => (
-                  <tr key={i}>
+                  <tr key={l.id}>
                     <td>
                       <select
                         value={l.mes}
@@ -365,7 +382,7 @@ export function FormularioSolicitud({
           rows={4}
           value={justificacion}
           onChange={(e) => setJustificacion(e.target.value)}
-          className="mt-1 block w-full rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--ink)] focus:border-[var(--blue)] focus:outline-none focus:ring-2 focus:ring-[rgba(46,117,182,0.18)]"
+          className={CONTROL_TEXTAREA}
         />
         <p className={AYUDA}>Se incluye en el archivo que recibe finanzas.</p>
       </div>

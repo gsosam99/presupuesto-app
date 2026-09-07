@@ -73,3 +73,8 @@ export function etiquetaTrimestre(trimestre: number): string {
 export function trimestreActual(hoy = new Date()): 1 | 2 | 3 | 4 {
   return trimestreDeMes(hoy.getMonth() + 1);
 }
+
+/** Año fiscal en curso: alias legible de fyDeFecha(new Date()). */
+export function fyActual(hoy = new Date()): number {
+  return fyDeFecha(hoy);
+}

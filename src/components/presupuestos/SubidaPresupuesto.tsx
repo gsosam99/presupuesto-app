@@ -1,9 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/Button";
+import { useCargaArchivo } from "@/hooks/useCargaArchivo";
+import { moneda } from "@/lib/format";
 
 interface Resumen {
   idCarga: string;
@@ -18,59 +19,11 @@ interface Resumen {
   rechazos: Array<{ fila: number; motivo: string }>;
 }
 
-const moneda = new Intl.NumberFormat("es-VE", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
 export function SubidaPresupuesto() {
-  const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [tipo, setTipo] = useState<"plan" | "extra_plan">("plan");
-  const [subiendo, setSubiendo] = useState(false);
-  const [resumen, setResumen] = useState<Resumen | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [yaCargado, setYaCargado] = useState<{ archivo: string; cargadoEl: string } | null>(null);
-  const [ultimo, setUltimo] = useState<File | null>(null);
-
-  async function subir(archivo: File, forzar = false) {
-    setUltimo(archivo);
-    setSubiendo(true);
-    setError(null);
-    setResumen(null);
-    setYaCargado(null);
-
-    try {
-      const formData = new FormData();
-      formData.append("archivo", archivo);
-      formData.append("tipo", tipo);
-      if (forzar) formData.append("forzar", "true");
-
-      const res = await fetch("/api/presupuestos", { method: "POST", body: formData });
-      const json = (await res.json()) as {
-        resumen?: Resumen;
-        error?: string;
-        yaCargado?: { archivo: string; cargadoEl: string };
-      };
-
-      if (res.status === 409 && json.yaCargado) {
-        setYaCargado(json.yaCargado);
-        return;
-      }
-
-      if (!res.ok || !json.resumen) {
-        setError(json.error ?? "No se pudo procesar el archivo.");
-        return;
-      }
-
-      setResumen(json.resumen);
-      router.refresh();
-    } catch {
-      setError("No se pudo conectar con el servidor.");
-    } finally {
-      setSubiendo(false);
-    }
-  }
+  const { subiendo, resumen, error, yaCargado, ultimo, subir } =
+    useCargaArchivo<Resumen>("/api/presupuestos");
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -119,7 +72,7 @@ export function SubidaPresupuesto() {
           className="sr-only"
           onChange={(e) => {
             const archivo = e.target.files?.[0];
-            if (archivo) void subir(archivo);
+            if (archivo) void subir(archivo, { camposExtra: { tipo } });
             e.target.value = "";
           }}
         />
@@ -143,7 +96,7 @@ export function SubidaPresupuesto() {
             variante="secundario"
             className="mt-2"
             disabled={subiendo || !ultimo}
-            onClick={() => ultimo && void subir(ultimo, true)}
+            onClick={() => ultimo && void subir(ultimo, { forzar: true, camposExtra: { tipo } })}
           >
             Cargar igual
           </Button>

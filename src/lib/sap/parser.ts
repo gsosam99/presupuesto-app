@@ -38,8 +38,10 @@ export interface FilaSap {
   proveedor: string | null;
   textoReferencia: string | null;
   grupoClaseCoste: string | null;
-  fecha: string | null;
-  montoReal: number | null;
+  /** Nunca null acá: las filas sin fecha se rechazan antes de llegar a `filas`. */
+  fecha: string;
+  /** Nunca null acá: las filas sin monto Real se rechazan antes de llegar a `filas`. */
+  montoReal: number;
   montoPlan: number | null;
   montoComprometido: number | null;
 }

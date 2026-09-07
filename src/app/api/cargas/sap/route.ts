@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { requireApiUser } from "@/lib/auth";
 import { ingestarSap, type ResumenIngesta } from "@/lib/ingesta/sap";
 import { parsearArchivoSap } from "@/lib/sap/parser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -13,11 +14,8 @@ const MAX_BYTES = 25 * 1024 * 1024;
 export async function POST(request: Request): Promise<Response> {
   try {
     const supabase = await createSupabaseServerClient();
-    const { data: auth, error: errorAuth } = await supabase.auth.getUser();
-
-    if (errorAuth || !auth.user) {
-      return Response.json({ error: "No autenticado" }, { status: 401 });
-    }
+    const auth = await requireApiUser(supabase);
+    if ("response" in auth) return auth.response;
 
     const formData = await request.formData();
     const archivos = formData.getAll("archivos").filter((a): a is File => a instanceof File);
@@ -45,13 +43,22 @@ export async function POST(request: Request): Promise<Response> {
 
       // Evita reprocesar el mismo archivo sin querer.
       if (!forzar) {
-        const { data: previa } = await supabase
+        const { data: previa, error: errorPrevia } = await supabase
           .from("cargas")
           .select("created_at")
           .eq("hash_archivo", hash)
           .eq("estado", "completada")
           .limit(1)
           .maybeSingle();
+
+        if (errorPrevia) {
+          console.error("[POST /api/cargas/sap]", errorPrevia);
+          errores.push({
+            archivo: archivo.name,
+            motivo: "No se pudo verificar si ya se había cargado.",
+          });
+          continue;
+        }
 
         if (previa) {
           yaCargados.push({

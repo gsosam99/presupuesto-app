@@ -4,21 +4,14 @@ import {
   FormularioSolicitud,
   type OpcionOi,
 } from "@/components/solicitudes/FormularioSolicitud";
-import { fyEtiqueta } from "@/lib/fiscal";
-import {
-  etiquetaVigencia,
-  vigenteEnFy,
-  type ConVigencia,
-} from "@/lib/presupuesto/vigencia";
+import { fyActual, fyEtiqueta } from "@/lib/fiscal";
+import { obtenerOrdenesInternasActivas } from "@/lib/presupuesto/ordenesInternas";
+import { etiquetaVigencia, vigenteEnFy } from "@/lib/presupuesto/vigencia";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { TipoSolicitud } from "@/types";
 
 export const metadata = { title: "Nueva solicitud — IENN Gastos App" };
 export const dynamic = "force-dynamic";
-
-function fyActual(hoy = new Date()): number {
-  return hoy.getFullYear() - (hoy.getMonth() + 1 >= 10 ? 0 : 1);
-}
 
 export default async function NuevaSolicitudPage({
   searchParams,
@@ -36,20 +29,16 @@ export default async function NuevaSolicitudPage({
   const fy = Number(params.fy) || fyActual();
 
   const supabase = await createSupabaseServerClient();
-  const { data } = await supabase
-    .from("ordenes_internas")
-    .select("id, codigo_oi, nombre, vigencia_desde, vigencia_hasta")
-    .eq("activo", true)
-    .order("codigo_oi");
+  const { data, error } = await obtenerOrdenesInternasActivas(supabase);
 
   // Solo órdenes vigentes en el año fiscal de la solicitud.
-  const ordenesInternas: OpcionOi[] = (data ?? [])
-    .filter((o) => vigenteEnFy(o as unknown as ConVigencia, fy))
+  const ordenesInternas: OpcionOi[] = data
+    .filter((o) => vigenteEnFy(o, fy))
     .map((o) => ({
-      id: o.id as string,
-      codigo: o.codigo_oi as string,
-      nombre: (o.nombre as string | null) ?? null,
-      vigencia: etiquetaVigencia(o as unknown as ConVigencia),
+      id: o.id,
+      codigo: o.codigo_oi,
+      nombre: o.nombre,
+      vigencia: etiquetaVigencia(o),
     }));
 
   return (
@@ -68,6 +57,12 @@ export default async function NuevaSolicitudPage({
           <strong>ahí se carga al presupuesto</strong>.
         </p>
       </header>
+
+      {error && (
+        <p className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          No se pudieron cargar las órdenes internas: {error.message}
+        </p>
+      )}
 
       <section className="mt-6">
         <FormularioSolicitud

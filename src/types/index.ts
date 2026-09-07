@@ -338,3 +338,27 @@ export interface ResultadoParseo<T> {
   rechazos: Array<{ fila: number; motivo: string; payload: Record<string, unknown> }>;
   filasLeidas: number;
 }
+
+// ---------------------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------------------
+
+export interface RegistroDashboard {
+  af: string;
+  fase: string;
+  hz: string;
+  motivo: string;
+  detalle: string;
+  monto: number;
+  n: number;
+}
+
+export interface DatosDashboard {
+  anios: string[];
+  currentFY: string;
+  fases: string[];
+  hzs: string[];
+  monthlyCurrent: Record<string, number>;
+  asof: string;
+  records: RegistroDashboard[];
+}

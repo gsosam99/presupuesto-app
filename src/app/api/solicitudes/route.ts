@@ -1,79 +1,75 @@
+import { z } from "zod";
+
+import { requireApiUser } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { TipoSolicitud } from "@/types";
 
 export const runtime = "nodejs";
 
-interface LineaEntrada {
-  mes?: number;
-  monto?: number;
-  cuenta_contable?: string | null;
-  descripcion_cuenta?: string | null;
-  tipo_gasto?: string | null;
-  detalle_gasto?: string | null;
-  responsable?: string | null;
-}
+const lineaSchema = z.object({
+  mes: z.number().int().min(1).max(12),
+  monto: z.number().positive(),
+  cuenta_contable: z.string().nullable().optional(),
+  descripcion_cuenta: z.string().nullable().optional(),
+  tipo_gasto: z.string().nullable().optional(),
+  detalle_gasto: z.string().nullable().optional(),
+  responsable: z.string().nullable().optional(),
+});
 
-interface Cuerpo {
-  tipo?: TipoSolicitud;
-  id_oi?: string | null;
-  id_ceco?: string | null;
-  fy?: number;
-  trimestre?: number | null;
-  titulo?: string;
-  justificacion?: string | null;
-  monto_solicitado?: number | null;
-  lineas?: LineaEntrada[];
-}
+const cuerpoSchema = z
+  .object({
+    tipo: z.enum(["extra_plan", "prorroga"]),
+    id_oi: z.string().nullable().optional(),
+    id_ceco: z.string().nullable().optional(),
+    fy: z.number(),
+    trimestre: z.number().nullable().optional(),
+    titulo: z.string().trim().min(1, "La solicitud necesita un título"),
+    justificacion: z.string().nullable().optional(),
+    monto_solicitado: z.number().nullable().optional(),
+    lineas: z.array(lineaSchema).optional(),
+  })
+  .superRefine((cuerpo, ctx) => {
+    if (!cuerpo.id_oi && !cuerpo.id_ceco) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Indica la Orden Interna (o el Centro de Costo) afectado",
+      });
+    }
+    if (cuerpo.tipo === "extra_plan" && (cuerpo.lineas ?? []).length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: "El extra plan necesita al menos una línea con mes y monto",
+      });
+    }
+    if (cuerpo.tipo === "prorroga") {
+      if (!cuerpo.trimestre) {
+        ctx.addIssue({
+          code: "custom",
+          message: "La prórroga necesita el trimestre cuyo sobrante quieres conservar",
+        });
+      }
+      if (!cuerpo.monto_solicitado || cuerpo.monto_solicitado <= 0) {
+        ctx.addIssue({ code: "custom", message: "Indica el monto a conservar" });
+      }
+    }
+  });
 
 /** Alta de una solicitud (extra plan o prórroga). Nace siempre en borrador. */
 export async function POST(request: Request): Promise<Response> {
   try {
     const supabase = await createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return Response.json({ error: "No autenticado" }, { status: 401 });
+    const auth = await requireApiUser(supabase);
+    if ("response" in auth) return auth.response;
 
-    const cuerpo = (await request.json()) as Cuerpo;
+    const parsed = cuerpoSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return Response.json(
+        { error: parsed.error.issues[0]?.message ?? "Datos inválidos" },
+        { status: 400 },
+      );
+    }
+    const cuerpo = parsed.data;
     const tipo = cuerpo.tipo;
-
-    if (tipo !== "extra_plan" && tipo !== "prorroga") {
-      return Response.json({ error: "Tipo de solicitud inválido" }, { status: 400 });
-    }
-    if (!cuerpo.id_oi && !cuerpo.id_ceco) {
-      return Response.json(
-        { error: "Indica la Orden Interna (o el Centro de Costo) afectado" },
-        { status: 400 },
-      );
-    }
-    if (!cuerpo.fy) {
-      return Response.json({ error: "Falta el año fiscal" }, { status: 400 });
-    }
-    const titulo = cuerpo.titulo?.trim();
-    if (!titulo) {
-      return Response.json({ error: "La solicitud necesita un título" }, { status: 400 });
-    }
-
-    const lineas = (cuerpo.lineas ?? []).filter(
-      (l): l is Required<Pick<LineaEntrada, "mes" | "monto">> & LineaEntrada =>
-        typeof l.mes === "number" && typeof l.monto === "number" && l.monto > 0,
-    );
-
-    if (tipo === "extra_plan" && lineas.length === 0) {
-      return Response.json(
-        { error: "El extra plan necesita al menos una línea con mes y monto" },
-        { status: 400 },
-      );
-    }
-    if (tipo === "prorroga") {
-      if (!cuerpo.trimestre) {
-        return Response.json(
-          { error: "La prórroga necesita el trimestre cuyo sobrante quieres conservar" },
-          { status: 400 },
-        );
-      }
-      if (!cuerpo.monto_solicitado || cuerpo.monto_solicitado <= 0) {
-        return Response.json({ error: "Indica el monto a conservar" }, { status: 400 });
-      }
-    }
+    const lineas = cuerpo.lineas ?? [];
 
     const { data: solicitud, error } = await supabase
       .from("solicitudes")
@@ -84,7 +80,7 @@ export async function POST(request: Request): Promise<Response> {
         id_ceco: cuerpo.id_ceco ?? null,
         fy: cuerpo.fy,
         trimestre: tipo === "prorroga" ? cuerpo.trimestre : null,
-        titulo,
+        titulo: cuerpo.titulo,
         justificacion: cuerpo.justificacion?.trim() || null,
         monto_solicitado:
           tipo === "prorroga"
@@ -96,7 +92,8 @@ export async function POST(request: Request): Promise<Response> {
       .single();
 
     if (error || !solicitud) {
-      return Response.json({ error: error?.message ?? "No se pudo crear" }, { status: 400 });
+      console.error("[POST /api/solicitudes]", error);
+      return Response.json({ error: "No se pudo crear la solicitud." }, { status: 400 });
     }
 
     if (tipo === "extra_plan") {
@@ -115,8 +112,17 @@ export async function POST(request: Request): Promise<Response> {
 
       if (errorLineas) {
         // Sin líneas la solicitud no sirve: se descarta para no dejar basura.
-        await supabase.from("solicitudes").delete().eq("id", solicitud.id as string);
-        return Response.json({ error: errorLineas.message }, { status: 400 });
+        const { error: errorBorrado } = await supabase
+          .from("solicitudes")
+          .delete()
+          .eq("id", solicitud.id as string);
+        if (errorBorrado) console.error("[POST /api/solicitudes] limpieza", errorBorrado);
+
+        console.error("[POST /api/solicitudes]", errorLineas);
+        return Response.json(
+          { error: "No se pudieron guardar las líneas de la solicitud." },
+          { status: 400 },
+        );
       }
     }
 

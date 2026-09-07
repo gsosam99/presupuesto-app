@@ -23,7 +23,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { claveComparacion, normalizarNumeroFactura } from "@/lib/sap/normalizar";
-import type { FilaSap, RechazoSap, ResultadoSap } from "@/lib/sap/parser";
+import type { FilaSap, LayoutSap, RechazoSap, ResultadoSap } from "@/lib/sap/parser";
 import type { Database } from "@/types/supabase";
 import type { EstadoRevision, OrigenAsignacion, TipoCarga } from "@/types";
 
@@ -178,7 +178,7 @@ function inferirHzDesdeTexto(
 ): string | null {
   const t = claveComparacion(texto);
   if (t === null) return null;
-  return tags.find((x) => t.includes(x.tag)) ?.idHz ?? null;
+  return tags.find((x) => t.includes(x.tag))?.idHz ?? null;
 }
 
 type ResultadoMatch =
@@ -222,8 +222,33 @@ export interface OpcionesIngesta {
   idUsuario: string | null;
 }
 
+export interface RegistroGasto {
+  fuente: LayoutSap;
+  factura: string | null;
+  fecha_documento: string;
+  proveedor_codigo: string | null;
+  proveedor: string | null;
+  texto_referencia: string | null;
+  grupo_clase_coste: string | null;
+  ceco_codigo_raw: string | null;
+  oi_codigo_raw: string | null;
+  monto_real: number;
+  monto_plan_sap: number | null;
+  monto_comprometido: number | null;
+  id_ceco: string | null;
+  id_oi: string | null;
+  id_hunting_zone: string | null;
+  fase: string | null;
+  motivo: string | null;
+  detalle: string | null;
+  id_factura_preregistrada: string | null;
+  origen_hz: OrigenAsignacion;
+  estado_revision: EstadoRevision;
+  id_carga: string | null;
+}
+
 export interface Clasificacion {
-  registros: Array<Record<string, string | number | null>>;
+  registros: RegistroGasto[];
   conMatchFactura: number;
   facturasAmbiguas: number;
   conTagInferido: number;
@@ -236,7 +261,7 @@ export interface Clasificacion {
  */
 export function clasificarFilas(
   filas: FilaSap[],
-  layout: TipoCarga,
+  layout: LayoutSap,
   maestras: Maestras,
   idCarga: string | null,
 ): Clasificacion {

@@ -6,16 +6,16 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { CampoSugerido } from "@/components/ui/CampoSugerido";
 import { AYUDA, CONTROL, ETIQUETA } from "@/components/ui/estilos";
-
-const formatoMoneda = new Intl.NumberFormat("es-VE", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
+import { moneda as formatoMoneda } from "@/lib/format";
 
 export interface OpcionOi {
   id: string;
   codigo: string;
   nombre: string | null;
+  /** 'real' cuelga de un CeCo y vence; 'tag' (#CAM) es transversal. */
+  tipo: "real" | "tag";
+  /** CeCo padre. Solo lo tienen las órdenes reales. */
+  idCeco: string | null;
   /** Hunting Zone que la maestra ya tiene asociada a esta OI. */
   huntingZone: string | null;
   idHuntingZone: string | null;
@@ -38,8 +38,15 @@ export interface Sugerencias {
   detalle: string[];
 }
 
+export interface OpcionCeco {
+  id: string;
+  codigo: string;
+  nombre: string;
+}
+
 interface Props {
   ordenesInternas: OpcionOi[];
+  cecos: OpcionCeco[];
   sugerencias: Sugerencias;
   /** Etiqueta del trimestre en curso, p. ej. "T4 · Jul–Sep". */
   trimestreActual: string;
@@ -47,6 +54,7 @@ interface Props {
 
 export function FormularioFactura({
   ordenesInternas,
+  cecos,
   sugerencias,
   trimestreActual,
 }: Props) {
@@ -55,11 +63,21 @@ export function FormularioFactura({
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [idOi, setIdOi] = useState("");
+  const [idCecoManual, setIdCecoManual] = useState("");
 
   const oiElegida = useMemo(
     () => ordenesInternas.find((o) => o.id === idOi) ?? null,
     [idOi, ordenesInternas],
   );
+
+  // Si la orden es real, el CeCo sale del padre y el campo queda bloqueado.
+  // Si es un tag (o no hay orden), el CeCo se elige a mano.
+  const cecoHeredado = oiElegida?.tipo === "real" ? oiElegida.idCeco : null;
+  const idCecoEfectivo = cecoHeredado ?? idCecoManual;
+  const cecoBloqueado = cecoHeredado !== null;
+
+  // Un gasto imputado al CeCo necesita una OI (real o tag) para saber su HZ.
+  const faltaOrden = idCecoEfectivo !== "" && !idOi;
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -81,7 +99,8 @@ export function FormularioFactura({
         texto_referencia: datos.get("texto_referencia"),
         fecha_factura: datos.get("fecha_factura") || null,
         id_oi: idOi || null,
-        // La Hunting Zone la deduce el servidor desde la maestra: nunca se envía.
+        id_ceco: idCecoEfectivo || null,
+        // La Hunting Zone la deduce el servidor desde la OI: nunca se envía.
         id_hunting_zone: null,
         fase: datos.get("fase"),
         motivo: datos.get("motivo"),
@@ -106,6 +125,7 @@ export function FormularioFactura({
     setOk(`Factura ${json.factura?.numero_factura} registrada.`);
     form.reset();
     setIdOi("");
+    setIdCecoManual("");
     router.refresh();
   }
 
@@ -147,11 +167,36 @@ export function FormularioFactura({
         </div>
       </div>
 
-      {/* Destino: la Hunting Zone se deduce de la OI */}
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+      {/* Destino: el CeCo sale de la OI real; la HZ, siempre de la OI */}
+      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        <div>
+          <label htmlFor="id_ceco" className={ETIQUETA}>
+            Centro de Costo
+          </label>
+          <select
+            id="id_ceco"
+            value={idCecoEfectivo}
+            disabled={cecoBloqueado}
+            onChange={(e) => setIdCecoManual(e.target.value)}
+            className={`mt-1 ${CONTROL} disabled:bg-slate-100 disabled:text-[var(--ink-soft)]`}
+          >
+            <option value="">— sin definir —</option>
+            {cecos.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.codigo} — {c.nombre}
+              </option>
+            ))}
+          </select>
+          <p className={AYUDA}>
+            {cecoBloqueado
+              ? "Heredado de la Orden Interna."
+              : "Si imputas al CeCo, elige además una orden o etiqueta."}
+          </p>
+        </div>
+
         <div>
           <label htmlFor="id_oi" className={ETIQUETA}>
-            Orden Interna
+            Orden Interna o etiqueta
           </label>
           <select
             id="id_oi"
@@ -163,12 +208,17 @@ export function FormularioFactura({
             <option value="">— sin definir —</option>
             {ordenesInternas.map((o) => (
               <option key={o.id} value={o.id}>
+                {o.tipo === "tag" ? "🏷 " : ""}
                 {o.codigo}
                 {o.nombre ? ` — ${o.nombre}` : ""}
                 {o.vigencia ? ` (${o.vigencia})` : ""}
               </option>
             ))}
           </select>
+          <p className={AYUDA}>
+            La orden define la Hunting Zone. Las etiquetas sirven para los gastos
+            imputados directo al CeCo.
+          </p>
         </div>
 
         <div>
@@ -189,6 +239,14 @@ export function FormularioFactura({
           <p className={AYUDA}>Se completa sola con la Orden Interna.</p>
         </div>
       </div>
+
+      {faltaOrden && (
+        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Elegiste un Centro de Costo pero no una Orden Interna. Agrega la orden real
+          vigente o una etiqueta (#CAM) para que el gasto sepa a qué Hunting Zone
+          pertenece.
+        </p>
+      )}
 
       {/* Fondos de la OI elegida: es el dato que hace falta antes de emitir la
           factura, para no comprometer plata que el trimestre ya no tiene. */}
@@ -310,7 +368,7 @@ export function FormularioFactura({
       )}
 
       <div className="mt-4">
-        <Button type="submit" disabled={enviando}>
+        <Button type="submit" disabled={enviando || faltaOrden}>
           {enviando ? "Guardando…" : "Registrar factura"}
         </Button>
       </div>

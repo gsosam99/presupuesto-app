@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { supabaseAnonKey, supabaseUrl } from "@/lib/env";
 import type { Database } from "@/types/supabase";
@@ -8,7 +9,7 @@ import type { Database } from "@/types/supabase";
  * Cliente Supabase para Server Components, Route Handlers y Server Actions.
  * La sesión viaja en cookies HTTP-only gestionadas por @supabase/ssr.
  */
-export async function createSupabaseServerClient() {
+export async function createSupabaseServerClient(): Promise<SupabaseClient<Database>> {
   const cookieStore = await cookies();
 
   return createServerClient<Database>(supabaseUrl(), supabaseAnonKey(), {

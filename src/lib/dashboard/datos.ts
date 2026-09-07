@@ -7,19 +7,14 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { DatosDashboard, RegistroDashboard } from "@/components/dashboard/DashboardIENN";
-import { fyEtiqueta, nombreMes } from "@/lib/fiscal";
+import { fyActual, fyEtiqueta, nombreMes } from "@/lib/fiscal";
 import type { Database } from "@/types/supabase";
+import type { DatosDashboard, RegistroDashboard } from "@/types";
 
 interface FilaMensual {
   fy: number;
   periodo: string;
   monto: number;
-}
-
-/** Año fiscal en curso: el ciclo arranca en octubre. */
-export function fyActual(hoy = new Date()): number {
-  return hoy.getFullYear() - (hoy.getMonth() + 1 >= 10 ? 0 : 1);
 }
 
 const ORDEN_FASES = [

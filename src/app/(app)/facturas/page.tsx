@@ -1,16 +1,15 @@
 import { CargaMasivaFacturas } from "@/components/facturas/CargaMasivaFacturas";
 import {
   FormularioFactura,
+  type OpcionCeco,
   type OpcionOi,
   type Sugerencias,
 } from "@/components/facturas/FormularioFactura";
-import { etiquetaTrimestre, trimestreActual } from "@/lib/fiscal";
+import { etiquetaTrimestre, fyActual, trimestreActual } from "@/lib/fiscal";
+import { moneda } from "@/lib/format";
 import { obtenerDisponibilidad } from "@/lib/presupuesto/disponibilidad";
-import {
-  etiquetaVigencia,
-  vigenteEnFy,
-  type ConVigencia,
-} from "@/lib/presupuesto/vigencia";
+import { obtenerOrdenesInternasActivas } from "@/lib/presupuesto/ordenesInternas";
+import { etiquetaVigencia, vigenteEnFy } from "@/lib/presupuesto/vigencia";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Facturas — IENN Gastos App" };
@@ -27,15 +26,6 @@ interface FilaConciliacion {
   monto_real_sap: number;
   desvio_usd: number | null;
   conciliada: boolean;
-}
-
-const moneda = new Intl.NumberFormat("es-VE", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
-function fyActual(hoy = new Date()): number {
-  return hoy.getFullYear() - (hoy.getMonth() + 1 >= 10 ? 0 : 1);
 }
 
 export default async function FacturasPage() {
@@ -56,17 +46,14 @@ export default async function FacturasPage() {
       ]),
   );
 
-  const [ois, hzs, tax, conciliacion] = await Promise.all([
-    supabase
-      .from("ordenes_internas")
-      .select("id, codigo_oi, nombre, id_hunting_zone, vigencia_desde, vigencia_hasta")
-      .eq("activo", true)
-      .order("codigo_oi"),
+  const [ois, hzs, cecosRes, tax, conciliacion] = await Promise.all([
+    obtenerOrdenesInternasActivas(supabase),
     supabase
       .from("hunting_zones")
       .select("id, nombre")
       .eq("activo", true)
       .order("orden_display"),
+    supabase.from("cecos").select("id, codigo_sap, nombre").eq("activo", true).order("codigo_sap"),
     supabase.from("v_valores_taxonomia").select("campo, valor").order("usos", { ascending: false }),
     supabase
       .from("v_conciliacion_facturas")
@@ -81,26 +68,32 @@ export default async function FacturasPage() {
     (hzs.data ?? []).map((h) => [h.id as string, h.nombre as string]),
   );
 
-  // Solo las órdenes vigentes en el año fiscal en curso: registrar una factura
-  // contra una OI vencida no tiene sentido.
-  const ordenesInternas: OpcionOi[] = (ois.data ?? [])
-    .filter((o) => vigenteEnFy(o as unknown as ConVigencia, fy))
+  // Las órdenes reales se filtran por vigencia del año fiscal en curso; las
+  // etiquetas son transversales y siempre están disponibles.
+  const ordenesInternas: OpcionOi[] = ois.data
+    .filter((o) => o.tipo === "tag" || vigenteEnFy(o, fy))
     .map((o) => {
-    const fondos = fondosPorOi.get(o.id as string);
+    const fondos = fondosPorOi.get(o.id);
     return {
-      id: o.id as string,
-      codigo: o.codigo_oi as string,
-      nombre: (o.nombre as string | null) ?? null,
-      idHuntingZone: (o.id_hunting_zone as string | null) ?? null,
-      huntingZone: o.id_hunting_zone
-        ? (hzPorId.get(o.id_hunting_zone as string) ?? null)
-        : null,
+      id: o.id,
+      codigo: o.codigo_oi,
+      nombre: o.nombre,
+      tipo: o.tipo,
+      idCeco: o.id_ceco,
+      idHuntingZone: o.id_hunting_zone,
+      huntingZone: o.id_hunting_zone ? (hzPorId.get(o.id_hunting_zone) ?? null) : null,
       saldoTrimestre: fondos?.saldo ?? null,
       disponibleTrimestre: fondos?.disponible ?? null,
       consumidoTrimestre: fondos?.consumido ?? null,
-      vigencia: etiquetaVigencia(o as unknown as ConVigencia),
+      vigencia: o.tipo === "tag" ? null : etiquetaVigencia(o),
     };
   });
+
+  const cecos: OpcionCeco[] = (cecosRes.data ?? []).map((c) => ({
+    id: c.id as string,
+    codigo: c.codigo_sap as string,
+    nombre: c.nombre as string,
+  }));
 
   const valores = (tax.data ?? []) as unknown as Array<{ campo: string; valor: string }>;
   const sugerencias: Sugerencias = {
@@ -110,6 +103,9 @@ export default async function FacturasPage() {
   };
 
   const filas = (conciliacion.data ?? []) as unknown as FilaConciliacion[];
+
+  const errorCarga =
+    ois.error ?? hzs.error ?? cecosRes.error ?? tax.error ?? conciliacion.error ?? null;
 
   return (
     <main className="mx-auto w-full max-w-6xl px-6 py-10">
@@ -123,9 +119,16 @@ export default async function FacturasPage() {
         </p>
       </header>
 
+      {errorCarga && (
+        <p className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          No se pudo cargar toda la información: {errorCarga.message}
+        </p>
+      )}
+
       <section className="mt-8">
         <FormularioFactura
           ordenesInternas={ordenesInternas}
+          cecos={cecos}
           sugerencias={sugerencias}
           trimestreActual={etiquetaTrimestre(tActual)}
         />

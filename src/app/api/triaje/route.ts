@@ -1,23 +1,27 @@
+import { z } from "zod";
+
+import { requireApiUser } from "@/lib/auth";
+import { escaparPatronIlike, resolverOiPorCodigo } from "@/lib/presupuesto/resolverOi";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 type Accion = "guardar" | "archivar" | "reabrir";
 
-interface Cuerpo {
-  ids?: string[];
-  accion?: Accion;
+const cuerpoSchema = z.object({
+  ids: z.array(z.string()).optional(),
+  accion: z.enum(["guardar", "archivar", "reabrir"]).optional(),
   /** Código de Orden Interna o etiqueta (#CAM). Se resuelve en el servidor. */
-  asignacion?: string | null;
-  id_hunting_zone?: string | null;
-  fase?: string | null;
-  motivo?: string | null;
-  detalle?: string | null;
-  nota?: string | null;
-  id_factura_preregistrada?: string | null;
+  asignacion: z.string().nullable().optional(),
+  id_hunting_zone: z.string().nullable().optional(),
+  fase: z.string().nullable().optional(),
+  motivo: z.string().nullable().optional(),
+  detalle: z.string().nullable().optional(),
+  nota: z.string().nullable().optional(),
+  id_factura_preregistrada: z.string().nullable().optional(),
   /** Si es false, guarda los cambios pero deja el gasto pendiente. */
-  aprobar?: boolean;
-}
+  aprobar: z.boolean().optional(),
+});
 
 function limpiar(valor: string | null | undefined): string | null {
   const v = valor?.trim();
@@ -34,11 +38,19 @@ function limpiar(valor: string | null | undefined): string | null {
 export async function PATCH(request: Request): Promise<Response> {
   try {
     const supabase = await createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return Response.json({ error: "No autenticado" }, { status: 401 });
+    const auth = await requireApiUser(supabase);
+    if ("response" in auth) return auth.response;
 
-    const cuerpo = (await request.json()) as Cuerpo;
-    const ids = (cuerpo.ids ?? []).filter((id) => typeof id === "string" && id !== "");
+    const parsed = cuerpoSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return Response.json(
+        { error: parsed.error.issues[0]?.message ?? "Datos inválidos" },
+        { status: 400 },
+      );
+    }
+    const cuerpo = parsed.data;
+
+    const ids = (cuerpo.ids ?? []).filter((id) => id !== "");
     const accion: Accion = cuerpo.accion ?? "guardar";
 
     if (ids.length === 0) {
@@ -60,7 +72,10 @@ export async function PATCH(request: Request): Promise<Response> {
         })
         .in("id", ids);
 
-      if (error) return Response.json({ error: error.message }, { status: 400 });
+      if (error) {
+        console.error("[PATCH /api/triaje]", error);
+        return Response.json({ error: "No se pudo actualizar el gasto." }, { status: 400 });
+      }
       return Response.json({ actualizados: ids.length, accion });
     }
 
@@ -76,11 +91,14 @@ export async function PATCH(request: Request): Promise<Response> {
         const { data: fila, error } = await supabase
           .from("hunting_zone_tags")
           .select("id_hunting_zone")
-          .ilike("tag", asignacion)
+          .ilike("tag", escaparPatronIlike(asignacion))
           .eq("activo", true)
           .maybeSingle();
 
-        if (error) return Response.json({ error: error.message }, { status: 400 });
+        if (error) {
+          console.error("[PATCH /api/triaje]", error);
+          return Response.json({ error: "No se pudo resolver la etiqueta." }, { status: 400 });
+        }
         if (!fila) {
           return Response.json(
             { error: `La etiqueta "${asignacion}" no existe.` },
@@ -90,51 +108,35 @@ export async function PATCH(request: Request): Promise<Response> {
         idHz = fila.id_hunting_zone as string;
         cambios.origen_hz = "manual";
       } else {
-        // Orden Interna. La imputación es EXCLUYENTE: si el gasto va a una OI,
-        // el CeCo se deduce del padre y no se guarda repetido.
-        const { data: oi, error } = await supabase
-          .from("ordenes_internas")
-          .select("id, id_ceco, id_hunting_zone")
-          .ilike("codigo_oi", asignacion)
-          .maybeSingle();
+        // Orden Interna: real o tag. La OI es la que define la Hunting Zone.
+        // Si es real, además arrastra su CeCo padre; si es un tag, el CeCo que
+        // trajo SAP se conserva intacto (el tag solo aporta la HZ).
+        const { data: oi, error } = await resolverOiPorCodigo(supabase, asignacion);
 
-        if (error) return Response.json({ error: error.message }, { status: 400 });
+        if (error) {
+          console.error("[PATCH /api/triaje]", error);
+          return Response.json(
+            { error: "No se pudo resolver la Orden Interna." },
+            { status: 400 },
+          );
+        }
+        if (!oi) {
+          return Response.json(
+            {
+              error: `"${asignacion}" no existe en la maestra de órdenes internas (ni como orden real ni como etiqueta).`,
+            },
+            { status: 400 },
+          );
+        }
 
-        if (oi) {
-          idOi = oi.id as string;
-          cambios.id_oi = idOi;
-          cambios.id_ceco = null;
-          if (!idHz && oi.id_hunting_zone) {
-            idHz = oi.id_hunting_zone as string;
-            cambios.origen_hz = "orden_interna";
-          }
-        } else {
-          // Si no es una OI, puede ser un CeCo: hay Hunting Zones que no usan
-          // órdenes internas y el gasto se imputa directo al centro de costo.
-          const { data: ceco, error: errorCeco } = await supabase
-            .from("cecos")
-            .select("id, id_hunting_zone")
-            .ilike("codigo_sap", asignacion)
-            .maybeSingle();
-
-          if (errorCeco) {
-            return Response.json({ error: errorCeco.message }, { status: 400 });
-          }
-          if (!ceco) {
-            return Response.json(
-              {
-                error: `"${asignacion}" no es una Orden Interna ni un Centro de Costo de la maestra.`,
-              },
-              { status: 400 },
-            );
-          }
-
-          cambios.id_ceco = ceco.id as string;
-          cambios.id_oi = null;
-          if (!idHz && ceco.id_hunting_zone) {
-            idHz = ceco.id_hunting_zone as string;
-            cambios.origen_hz = "manual";
-          }
+        idOi = oi.id;
+        cambios.id_oi = idOi;
+        if (oi.tipo === "real" && oi.id_ceco) {
+          cambios.id_ceco = oi.id_ceco;
+        }
+        if (!idHz && oi.id_hunting_zone) {
+          idHz = oi.id_hunting_zone;
+          cambios.origen_hz = oi.tipo === "real" ? "orden_interna" : "manual";
         }
       }
     } else if (idHz) {
@@ -145,18 +147,22 @@ export async function PATCH(request: Request): Promise<Response> {
     if (cuerpo.id_factura_preregistrada) {
       const { data: factura, error } = await supabase
         .from("facturas_preregistradas")
-        .select("id, id_oi, id_hunting_zone, fase, motivo, detalle")
+        .select("id, id_oi, id_ceco, id_hunting_zone, fase, motivo, detalle")
         .eq("id", cuerpo.id_factura_preregistrada)
         .maybeSingle();
 
-      if (error) return Response.json({ error: error.message }, { status: 400 });
+      if (error) {
+        console.error("[PATCH /api/triaje]", error);
+        return Response.json(
+          { error: "No se pudo resolver la factura pre-registrada." },
+          { status: 400 },
+        );
+      }
       if (!factura) return Response.json({ error: "La factura no existe" }, { status: 400 });
 
       cambios.id_factura_preregistrada = factura.id as string;
-      if (!idOi && factura.id_oi) {
-        cambios.id_oi = factura.id_oi as string;
-        cambios.id_ceco = null;
-      }
+      if (!idOi && factura.id_oi) cambios.id_oi = factura.id_oi as string;
+      if (factura.id_ceco) cambios.id_ceco = factura.id_ceco as string;
       if (!idHz && factura.id_hunting_zone) {
         idHz = factura.id_hunting_zone as string;
         cambios.origen_hz = "prerregistro";
@@ -185,12 +191,18 @@ export async function PATCH(request: Request): Promise<Response> {
         .in("id", ids)
         .is("id_hunting_zone", null);
 
-      if (error) return Response.json({ error: error.message }, { status: 400 });
+      if (error) {
+        console.error("[PATCH /api/triaje]", error);
+        return Response.json(
+          { error: "No se pudo verificar el estado de los gastos." },
+          { status: 400 },
+        );
+      }
       if ((sinHz ?? []).length > 0) {
         return Response.json(
           {
             error:
-              "Falta el proyecto: escribe una Orden Interna, una etiqueta (#CAM) o asocia una factura pre-registrada.",
+              "Falta el proyecto: escribe la Orden Interna real, una etiqueta (#CAM) o asocia una factura pre-registrada.",
           },
           { status: 400 },
         );
@@ -207,7 +219,8 @@ export async function PATCH(request: Request): Promise<Response> {
       .in("id", ids);
 
     if (errorUpdate) {
-      return Response.json({ error: errorUpdate.message }, { status: 400 });
+      console.error("[PATCH /api/triaje]", errorUpdate);
+      return Response.json({ error: "No se pudo guardar los cambios." }, { status: 400 });
     }
 
     return Response.json({ actualizados: ids.length, accion: "guardar", aprobado: aprobar });

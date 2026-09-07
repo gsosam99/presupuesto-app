@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { AccionesSolicitud } from "@/components/solicitudes/AccionesSolicitud";
 import { etiquetaTrimestre, fyEtiqueta, nombreMes, trimestreDeMes } from "@/lib/fiscal";
+import { moneda } from "@/lib/format";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { EstadoSolicitud, TipoSolicitud } from "@/types";
 
@@ -20,11 +21,6 @@ interface Linea {
   responsable: string | null;
 }
 
-const moneda = new Intl.NumberFormat("es-VE", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
 export default async function SolicitudPage({
   params,
 }: {
@@ -33,13 +29,23 @@ export default async function SolicitudPage({
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
 
-  const { data: solicitud } = await supabase
+  const { data: solicitud, error: errorSolicitud } = await supabase
     .from("solicitudes")
     .select(
       "id, tipo, estado, fy, trimestre, titulo, justificacion, monto_solicitado, referencia_aprobacion, nota_resolucion, created_at, enviada_at, resuelta_at, id_oi",
     )
     .eq("id", id)
     .maybeSingle();
+
+  if (errorSolicitud) {
+    return (
+      <main className="mx-auto w-full max-w-[1100px] px-5 py-8">
+        <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          No se pudo cargar la solicitud: {errorSolicitud.message}
+        </p>
+      </main>
+    );
+  }
 
   if (!solicitud) notFound();
 

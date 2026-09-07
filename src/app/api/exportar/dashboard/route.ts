@@ -1,3 +1,4 @@
+import { requireApiUser } from "@/lib/auth";
 import { obtenerDatosDashboard } from "@/lib/dashboard/datos";
 import {
   generarHtmlDashboard,
@@ -13,8 +14,8 @@ export const maxDuration = 60;
 export async function GET(): Promise<Response> {
   try {
     const supabase = await createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return Response.json({ error: "No autenticado" }, { status: 401 });
+    const auth = await requireApiUser(supabase);
+    if ("response" in auth) return auth.response;
 
     const datos = await obtenerDatosDashboard(supabase);
 
@@ -49,9 +50,6 @@ export async function GET(): Promise<Response> {
     });
   } catch (error) {
     console.error("[GET /api/exportar/dashboard]", error);
-    return Response.json(
-      { error: error instanceof Error ? error.message : "Error interno" },
-      { status: 500 },
-    );
+    return Response.json({ error: "No se pudo generar el export." }, { status: 500 });
   }
 }

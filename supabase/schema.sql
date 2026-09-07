@@ -821,6 +821,7 @@ create table if not exists public.solicitudes (
 
 create index if not exists idx_solicitudes_estado on public.solicitudes(estado, tipo);
 create index if not exists idx_solicitudes_oi     on public.solicitudes(id_oi);
+create index if not exists idx_solicitudes_ceco   on public.solicitudes(id_ceco);
 create index if not exists idx_solicitudes_fy     on public.solicitudes(fy, trimestre);
 
 create table if not exists public.solicitud_lineas (
@@ -869,20 +870,36 @@ create trigger trg_solicitudes_updated_at
 -- en T-1. Ver supabase/migrations para el cuerpo completo.
 
 -- ============================================================================
--- 11. Jerarquía HZ → CeCo → OI, imputación exclusiva y vigencia
+-- 11. Jerarquía HZ / CeCo / OI y vigencia de las órdenes
 -- ============================================================================
--- Una Hunting Zone tiene n Centros de Costo; un CeCo tiene n Órdenes Internas.
--- Un gasto se imputa a UNA OI **o** a UN CeCo, nunca a los dos: cuando hay OI,
--- el CeCo se deduce del padre y no se guarda repetido.
+--   · Un Centro de Costo agrupa N Hunting Zones (la mayoría comparte CeCo).
+--   · Una Hunting Zone tiene N Órdenes Internas.
+--   · Una Orden Interna pertenece a EXACTAMENTE UNA Hunting Zone.
+--
+--   SAP imputa cada gasto a un CeCo **o** a una OI, nunca a ambos. Pero la app
+--   agrega una OI de tipo TAG (#CAM, #SNA) sobre los gastos imputados al CeCo
+--   para saber a qué Hunting Zone pertenecen, sin tocar la data real de SAP.
+--   Por eso CeCo y OI CONVIVEN en un gasto y no hay exclusividad entre ellos.
+--   Si el gasto trae OI real, el CeCo se deduce del padre.
 
-alter table public.cecos
-  add column if not exists id_hunting_zone uuid
-    references public.hunting_zones(id) on delete restrict;
-create index if not exists idx_cecos_hz on public.cecos(id_hunting_zone);
+-- Tipo de orden: 'real' es una orden de SAP (cuelga de un CeCo, puede vencer);
+-- 'tag' es una etiqueta de la app, transversal y sin vigencia.
+do $$ begin
+  create type public.tipo_orden_interna as enum ('real', 'tag');
+exception when duplicate_object then null; end $$;
 
--- Vigencia de las órdenes internas: una OI puede durar un mes, un año fiscal o
--- lo que dure un proyecto. Los selectores filtran por la fecha en juego para
--- que no se pueda imputar un gasto a una orden vencida.
+alter table public.ordenes_internas
+  add column if not exists tipo public.tipo_orden_interna not null default 'real';
+
+comment on column public.ordenes_internas.tipo is
+  'real = orden de SAP, cuelga de un CeCo y puede tener vigencia. tag = etiqueta de la app (#CAM) para asignar HZ a gastos imputados al CeCo.';
+
+-- Una OI pertenece a una sola Hunting Zone, y siempre a una.
+alter table public.ordenes_internas alter column id_hunting_zone set not null;
+
+-- Vigencia: una OI puede durar un mes, un año fiscal o lo que dure un proyecto.
+-- Los selectores filtran por la fecha en juego para que no se pueda imputar un
+-- gasto a una orden vencida. Los tags no vencen.
 alter table public.ordenes_internas
   add column if not exists vigencia_desde date,
   add column if not exists vigencia_hasta date;
@@ -892,29 +909,14 @@ do $$ begin
     check (vigencia_desde is null or vigencia_hasta is null or vigencia_desde <= vigencia_hasta);
 exception when duplicate_object then null; end $$;
 
+-- El pre-registro puede imputar al CeCo además de llevar su OI o etiqueta.
 alter table public.facturas_preregistradas
   add column if not exists id_ceco uuid references public.cecos(id) on delete set null;
 create index if not exists idx_fp_ceco on public.facturas_preregistradas(id_ceco);
 
-do $$ begin
-  alter table public.gastos add constraint gastos_imputacion_exclusiva
-    check (id_oi is null or id_ceco is null);
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  alter table public.facturas_preregistradas add constraint fp_imputacion_exclusiva
-    check (id_oi is null or id_ceco is null);
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  alter table public.presupuestos add constraint presupuestos_imputacion_exclusiva
-    check (id_oi is null or id_ceco is null);
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  alter table public.solicitudes add constraint solicitudes_imputacion_exclusiva
-    check (id_oi is null or id_ceco is null);
-exception when duplicate_object then null; end $$;
-
--- v_gastos_enriquecidos expone el "CeCo efectivo": el imputado directo o, si el
--- gasto va a una OI, el del padre. Ver la migración "vistas_ceco_efectivo".
+-- v_gastos_enriquecidos expone el "CeCo efectivo": el imputado por SAP o, si el
+-- gasto va a una OI real, el del padre. Ver la migración "vistas_ceco_efectivo".
+--
+-- v_gastos_periodo resuelve la UNIDAD PRESUPUESTARIA de cada gasto por
+-- precedencia: OI real → CeCo → tag (este último solo para data legacy que
+-- llegó con etiqueta y sin CeCo). Ver "unidad_presupuestaria_fallback_tag_v2".

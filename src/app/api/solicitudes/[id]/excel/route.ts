@@ -1,3 +1,4 @@
+import { requireApiUser } from "@/lib/auth";
 import {
   generarExcelExtraPlan,
   nombreArchivoExtraPlan,
@@ -15,8 +16,8 @@ export async function GET(
   try {
     const { id } = await params;
     const supabase = await createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return Response.json({ error: "No autenticado" }, { status: 401 });
+    const auth = await requireApiUser(supabase);
+    if ("response" in auth) return auth.response;
 
     const { data: solicitud, error } = await supabase
       .from("solicitudes")
@@ -24,7 +25,10 @@ export async function GET(
       .eq("id", id)
       .maybeSingle();
 
-    if (error) return Response.json({ error: error.message }, { status: 400 });
+    if (error) {
+      console.error("[GET /api/solicitudes/:id/excel]", error);
+      return Response.json({ error: "No se pudo leer la solicitud." }, { status: 400 });
+    }
     if (!solicitud) return Response.json({ error: "No existe" }, { status: 404 });
     if (solicitud.tipo !== "extra_plan") {
       return Response.json(
@@ -58,11 +62,12 @@ export async function GET(
     // El CeCo del encabezado sale de la OI cuando la maestra lo tiene resuelto.
     let cecoDeclarado: string | null = (ceco.data?.codigo_sap as string | null) ?? null;
     if (!cecoDeclarado && oi.data?.id_ceco) {
-      const { data: cecoOi } = await supabase
+      const { data: cecoOi, error: errorCecoOi } = await supabase
         .from("cecos")
         .select("codigo_sap")
         .eq("id", oi.data.id_ceco as string)
         .maybeSingle();
+      if (errorCecoOi) console.error("[GET /api/solicitudes/:id/excel]", errorCecoOi);
       cecoDeclarado = (cecoOi?.codigo_sap as string | null) ?? null;
     }
 

@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { moneda } from "@/lib/format";
+
 export interface GastoArchivado {
   id: string;
   fecha_documento: string;
@@ -16,11 +18,6 @@ export interface GastoArchivado {
   oi_codigo_raw: string | null;
   hunting_zone: string | null;
 }
-
-const moneda = new Intl.NumberFormat("es-VE", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
 
 export function TablaArchivados({ gastos }: { gastos: GastoArchivado[] }) {
   const router = useRouter();
