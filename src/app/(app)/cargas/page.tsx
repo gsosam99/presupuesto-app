@@ -1,3 +1,4 @@
+import { BotonRevertir } from "@/components/cargas/BotonRevertir";
 import { SubidaSap } from "@/components/cargas/SubidaSap";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -81,13 +82,21 @@ export default async function CargasPage() {
                   <th className="px-4 py-2 text-right font-medium">Duplicadas</th>
                   <th className="px-4 py-2 text-right font-medium">Descartadas</th>
                   <th className="px-4 py-2 font-medium">Fecha</th>
+                  <th className="px-4 py-2 font-medium">
+                    <span className="sr-only">Acciones</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {cargas.map((c) => (
                   <tr key={c.id}>
-                    <td className="max-w-[16rem] truncate px-4 py-2 text-slate-900">
-                      {c.nombre_archivo}
+                    <td className="max-w-[16rem] px-4 py-2 text-slate-900">
+                      <span className="block truncate">{c.nombre_archivo}</span>
+                      {c.estado === "revertida" && (
+                        <span className="mt-0.5 inline-block rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-700">
+                          revertida
+                        </span>
+                      )}
                       {c.mensaje && (
                         <span className="mt-0.5 block text-xs text-amber-700">
                           {c.mensaje}
@@ -114,6 +123,14 @@ export default async function CargasPage() {
                         dateStyle: "short",
                         timeStyle: "short",
                       })}
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      {c.estado === "completada" && c.filas_insertadas > 0 && (
+                        <BotonRevertir
+                          idCarga={c.id}
+                          nombreArchivo={c.nombre_archivo}
+                        />
+                      )}
                     </td>
                   </tr>
                 ))}

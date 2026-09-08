@@ -969,3 +969,25 @@ group by a.fy, a.activo
 order by a.fy desc;
 
 alter view public.v_anios_fiscales set (security_invoker = on);
+
+-- ============================================================================
+-- 13. Reversión de cargas — 2026-09-08
+-- ============================================================================
+-- Deshacer una carga es borrar los gastos que produjo. Se apoya en
+-- gastos.id_carga, que ya existe y está indexado (idx_gastos_carga).
+--
+-- Ojo con el sentido de la FK: gastos.id_carga es "on delete set null", así que
+-- BORRAR la fila de cargas NO borra sus gastos, sólo los deja huérfanos y sin
+-- rastro de dónde salieron. Por eso la reversión borra los gastos de forma
+-- explícita y la carga NO se elimina: queda marcada como 'revertida' para que
+-- el historial siga siendo legible.
+
+-- Idempotente: "add value if not exists" no falla si ya se corrió.
+alter type public.estado_carga add value if not exists 'revertida';
+
+alter table public.cargas
+  add column if not exists revertida_at  timestamptz,
+  add column if not exists revertida_por uuid references auth.users(id) on delete set null;
+
+comment on column public.cargas.revertida_at is
+  'Momento en que se deshizo la carga. Los gastos que había insertado se borraron.';

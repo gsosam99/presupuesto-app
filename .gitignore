@@ -46,3 +46,6 @@ next-env.d.ts
 # Data de negocio: nunca versionar los consolidados ni los formatos cargados
 *.xlsx
 *.xls
+
+# Respaldos de datos de negocio: nunca al repo
+/respaldos

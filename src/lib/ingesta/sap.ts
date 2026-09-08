@@ -22,6 +22,11 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  cargarIndiceExistentes,
+  clasificarDuplicado,
+  dentroDeRango,
+} from "@/lib/ingesta/duplicados";
 import { claveComparacion, normalizarNumeroFactura } from "@/lib/sap/normalizar";
 import type { FilaSap, LayoutSap, RechazoSap, ResultadoSap } from "@/lib/sap/parser";
 import type { Database } from "@/types/supabase";
@@ -48,12 +53,37 @@ export interface ResumenIngesta {
   /** Facturas con más de un pre-registro candidato: requieren asociación manual. */
   facturasAmbiguas: number;
   conTagInferido: number;
+  /** Monto Real de lo que efectivamente se ingestó (ya filtrado). */
   montoReal: number;
+  /** Monto Real de TODO el archivo, filtro aparte: es contra esto que cuadra SAP. */
+  montoArchivo: number;
   totalDeclarado: number | null;
-  /** |suma parseada − total del archivo|. SAP arrastra centavos de redondeo. */
+  /** |suma del archivo − total declarado|. SAP arrastra centavos de redondeo. */
   deltaTotal: number | null;
+  /** Filas descartadas por quedar fuera del rango de fechas elegido. */
+  omitidasPorFecha: number;
+  /** Filas descartadas por ser probables repetidos de algo ya cargado. */
+  omitidasPorProbable: number;
   oisDesconocidas: string[];
 }
+
+/**
+ * Acotamiento elegido por el usuario en la previsualización. Se vuelve a
+ * aplicar acá, del lado del servidor, en vez de confiar en una lista de filas
+ * que mande el cliente.
+ */
+export interface FiltroCarga {
+  desde: string | null;
+  hasta: string | null;
+  /** Deja fuera las filas marcadas como "probable repetido". Ver duplicados.ts. */
+  omitirProbables: boolean;
+}
+
+export const SIN_FILTRO: FiltroCarga = {
+  desde: null,
+  hasta: null,
+  omitirProbables: false,
+};
 
 /** Trae todas las filas de una tabla/vista paginando de a 1000. */
 async function traerTodo<T>(
@@ -220,6 +250,7 @@ export interface OpcionesIngesta {
   nombreArchivo: string;
   hashArchivo: string;
   idUsuario: string | null;
+  filtro?: FiltroCarga;
 }
 
 export interface RegistroGasto {
@@ -356,6 +387,41 @@ export async function ingestarSap(
 ): Promise<ResumenIngesta> {
   const maestras = await cargarMaestras(cliente);
   const rechazos: RechazoSap[] = [...parseado.rechazos];
+  const filtro = opciones.filtro ?? SIN_FILTRO;
+
+  // --- Acotamiento elegido en la previsualización ---------------------------
+  // Se recalcula acá en vez de aceptar del cliente una lista de filas a
+  // insertar: el navegador decide QUÉ criterio aplicar, nunca qué se escribe.
+  const porFecha = parseado.filas.filter((f) =>
+    dentroDeRango(f.fecha, filtro.desde, filtro.hasta),
+  );
+  const omitidasPorFecha = parseado.filas.length - porFecha.length;
+
+  let filas = porFecha;
+  let omitidasPorProbable = 0;
+
+  if (filtro.omitirProbables && porFecha.length > 0) {
+    const fechas = porFecha.map((f) => f.fecha).sort();
+    const indice = await cargarIndiceExistentes(
+      cliente,
+      fechas[0],
+      fechas[fechas.length - 1],
+    );
+    filas = porFecha.filter(
+      (f) =>
+        clasificarDuplicado(
+          {
+            proveedor: f.proveedor,
+            factura: f.factura,
+            textoReferencia: f.textoReferencia,
+            fecha: f.fecha,
+            montoReal: f.montoReal,
+          },
+          indice,
+        ) !== "probable",
+    );
+    omitidasPorProbable = porFecha.length - filas.length;
+  }
 
   const { data: carga, error: errorCarga } = await cliente
     .from("cargas")
@@ -376,7 +442,7 @@ export async function ingestarSap(
   const idCarga = carga.id as string;
 
   const { registros, conMatchFactura, facturasAmbiguas, conTagInferido, oisDesconocidas } =
-    clasificarFilas(parseado.filas, parseado.layout, maestras, idCarga);
+    clasificarFilas(filas, parseado.layout, maestras, idCarga);
 
   // --- Inserción por lotes -------------------------------------------------
   let insertadas = 0;
@@ -399,7 +465,7 @@ export async function ingestarSap(
           if (e1.code === "23505") duplicadas += 1;
           else {
             rechazos.push({
-              fila: parseado.filas[i + j]?.fila ?? i + j,
+              fila: filas[i + j]?.fila ?? i + j,
               motivo: e1.message,
               payload: {
                 factura: String(r.factura ?? ""),
@@ -427,9 +493,21 @@ export async function ingestarSap(
     );
   }
 
-  const montoReal = parseado.filas.reduce((s, f) => s + (f.montoReal ?? 0), 0);
+  const montoReal = filas.reduce((s, f) => s + (f.montoReal ?? 0), 0);
+  const montoArchivo = parseado.filas.reduce((s, f) => s + (f.montoReal ?? 0), 0);
 
   const avisos: string[] = [];
+  // El acotamiento queda escrito en el historial: sin esto, una carga parcial
+  // es indistinguible de una completa cuando alguien la revise en seis meses.
+  if (filtro.desde !== null || filtro.hasta !== null) {
+    avisos.push(
+      `Acotada a ${filtro.desde ?? "el inicio"} .. ${filtro.hasta ?? "el final"} ` +
+        `(${omitidasPorFecha} filas fuera del rango)`,
+    );
+  }
+  if (omitidasPorProbable > 0) {
+    avisos.push(`${omitidasPorProbable} filas omitidas por ser probables repetidos`);
+  }
   if (oisDesconocidas.length > 0) {
     avisos.push(`Órdenes internas fuera de la maestra: ${oisDesconocidas.join(", ")}`);
   }
@@ -467,11 +545,17 @@ export async function ingestarSap(
     facturasAmbiguas,
     conTagInferido,
     montoReal,
+    montoArchivo,
     totalDeclarado: parseado.totalDeclarado,
+    // Contra el TOTAL DEL ARCHIVO, no contra lo ingestado: si la carga se
+    // acotó a un mes, cuadrar el subconjunto contra el total de SAP daría
+    // siempre un descuadre falso.
     deltaTotal:
       parseado.totalDeclarado === null
         ? null
-        : Math.abs(montoReal - parseado.totalDeclarado),
+        : Math.abs(montoArchivo - parseado.totalDeclarado),
+    omitidasPorFecha,
+    omitidasPorProbable,
     oisDesconocidas,
   };
 }

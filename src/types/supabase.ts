@@ -40,7 +40,7 @@ type TipoCargaDB =
   | "presupuesto_extra_plan"
   | "preregistro_facturas"
   | "maestras";
-type EstadoCargaDB = "procesando" | "completada" | "fallida";
+type EstadoCargaDB = "procesando" | "completada" | "fallida" | "revertida";
 
 // ---------------------------------------------------------------------------
 // Tablas tipadas a mano
@@ -341,6 +341,8 @@ interface CargasRow {
   id_usuario: string | null;
   created_at: string;
   finalizada_at: string | null;
+  revertida_at: string | null;
+  revertida_por: string | null;
 }
 interface CargasInsert {
   id?: string;
@@ -356,6 +358,8 @@ interface CargasInsert {
   id_usuario?: string | null;
   created_at?: string;
   finalizada_at?: string | null;
+  revertida_at?: string | null;
+  revertida_por?: string | null;
 }
 
 // ---------------------------------------------------------------------------

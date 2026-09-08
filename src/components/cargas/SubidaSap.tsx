@@ -3,6 +3,11 @@
 import { useCallback, useRef, useState, type DragEvent } from "react";
 import { useRouter } from "next/navigation";
 
+import {
+  ModalPrevioCarga,
+  type ArchivoPrevio,
+  type FiltroElegido,
+} from "@/components/cargas/ModalPrevioCarga";
 import { Button } from "@/components/ui/Button";
 import { moneda } from "@/lib/format";
 
@@ -22,15 +27,17 @@ interface Resumen {
   facturasAmbiguas: number;
   conTagInferido: number;
   montoReal: number;
+  montoArchivo: number;
   totalDeclarado: number | null;
   deltaTotal: number | null;
+  omitidasPorFecha: number;
+  omitidasPorProbable: number;
   oisDesconocidas: string[];
 }
 
 interface Respuesta {
   resumenes: Resumen[];
   errores: Array<{ archivo: string; motivo: string }>;
-  yaCargados: Array<{ archivo: string; cargadoEl: string }>;
   error?: string;
 }
 
@@ -39,22 +46,61 @@ export function SubidaSap() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [arrastrando, setArrastrando] = useState(false);
+  const [analizando, setAnalizando] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
+  const [previas, setPrevias] = useState<ArchivoPrevio[] | null>(null);
+  const [pendientes, setPendientes] = useState<File[]>([]);
   const [respuesta, setRespuesta] = useState<Respuesta | null>(null);
   const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
 
-  const subir = useCallback(
-    async (archivos: FileList | File[], forzar = false) => {
-      const lista = Array.from(archivos);
-      if (lista.length === 0) return;
+  /** Paso 1: analizar sin escribir y abrir el modal de revisión. */
+  const analizar = useCallback(async (archivos: FileList | File[]) => {
+    const lista = Array.from(archivos);
+    if (lista.length === 0) return;
 
+    setAnalizando(true);
+    setErrorGeneral(null);
+    setRespuesta(null);
+
+    try {
+      const formData = new FormData();
+      for (const a of lista) formData.append("archivos", a);
+
+      const res = await fetch("/api/cargas/sap/previsualizar", {
+        method: "POST",
+        body: formData,
+      });
+      const json = (await res.json()) as { previas?: ArchivoPrevio[]; error?: string };
+
+      if (!res.ok || !json.previas) {
+        setErrorGeneral(json.error ?? "No se pudo analizar la carga.");
+        return;
+      }
+
+      setPendientes(lista);
+      setPrevias(json.previas);
+    } catch {
+      setErrorGeneral("No se pudo conectar con el servidor.");
+    } finally {
+      setAnalizando(false);
+    }
+  }, []);
+
+  /** Paso 2: cargar de verdad, con el acotamiento confirmado en el modal. */
+  const confirmar = useCallback(
+    async (filtro: FiltroElegido) => {
       setSubiendo(true);
       setErrorGeneral(null);
 
       try {
         const formData = new FormData();
-        for (const a of lista) formData.append("archivos", a);
-        if (forzar) formData.append("forzar", "true");
+        for (const a of pendientes) formData.append("archivos", a);
+        if (filtro.desde) formData.append("desde", filtro.desde);
+        if (filtro.hasta) formData.append("hasta", filtro.hasta);
+        if (filtro.omitirProbables) formData.append("omitirProbables", "true");
+        // El guardia de "este archivo ya se cargó" lo cubre el modal, que
+        // muestra la fecha de la carga previa antes de llegar acá.
+        formData.append("forzar", "true");
 
         const res = await fetch("/api/cargas/sap", { method: "POST", body: formData });
         const json = (await res.json()) as Respuesta;
@@ -64,6 +110,8 @@ export function SubidaSap() {
           return;
         }
 
+        setPrevias(null);
+        setPendientes([]);
         setRespuesta(json);
         router.refresh();
       } catch {
@@ -72,25 +120,21 @@ export function SubidaSap() {
         setSubiendo(false);
       }
     },
-    [router],
+    [pendientes, router],
   );
 
-  const [ultimosArchivos, setUltimosArchivos] = useState<File[]>([]);
-
-  const manejarArchivos = useCallback(
-    (archivos: FileList | File[]) => {
-      const lista = Array.from(archivos);
-      setUltimosArchivos(lista);
-      void subir(lista);
-    },
-    [subir],
-  );
+  function cancelar() {
+    setPrevias(null);
+    setPendientes([]);
+  }
 
   function handleDrop(e: DragEvent<HTMLDivElement>) {
     e.preventDefault();
     setArrastrando(false);
-    if (!subiendo) manejarArchivos(e.dataTransfer.files);
+    if (!analizando && !subiendo) void analizar(e.dataTransfer.files);
   }
+
+  const ocupado = analizando || subiendo;
 
   return (
     <div>
@@ -115,10 +159,10 @@ export function SubidaSap() {
           type="button"
           variante="secundario"
           className="mt-3"
-          disabled={subiendo}
+          disabled={ocupado}
           onClick={() => inputRef.current?.click()}
         >
-          {subiendo ? "Procesando…" : "Elegir archivos"}
+          {analizando ? "Analizando…" : "Elegir archivos"}
         </Button>
 
         <input
@@ -128,43 +172,31 @@ export function SubidaSap() {
           accept=".xls,.xlsx,.htm,.html"
           className="sr-only"
           onChange={(e) => {
-            if (e.target.files) manejarArchivos(e.target.files);
+            if (e.target.files) void analizar(e.target.files);
             e.target.value = "";
           }}
         />
 
         <p className="mt-3 text-xs text-slate-500">
           Puedes soltar los dos reportes (CeCo y OI) a la vez. Máximo 25 MB por archivo.
+          Antes de escribir nada verás qué trae cada archivo y podrás acotar el rango.
         </p>
       </div>
+
+      {previas && (
+        <ModalPrevioCarga
+          previas={previas}
+          procesando={subiendo}
+          onCancelar={cancelar}
+          onConfirmar={(f) => void confirmar(f)}
+        />
+      )}
 
       {errorGeneral && (
         <p role="alert" className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {errorGeneral}
         </p>
       )}
-
-      {respuesta?.yaCargados.map((y) => (
-        <div
-          key={y.archivo}
-          className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
-        >
-          <p>
-            <span className="font-medium">{y.archivo}</span> ya se cargó el{" "}
-            {new Date(y.cargadoEl).toLocaleString("es-VE", { dateStyle: "short" })}. No se
-            procesó de nuevo.
-          </p>
-          <Button
-            type="button"
-            variante="secundario"
-            className="mt-2"
-            disabled={subiendo}
-            onClick={() => void subir(ultimosArchivos, true)}
-          >
-            Cargar igual
-          </Button>
-        </div>
-      ))}
 
       {respuesta?.errores.map((e) => (
         <p
@@ -198,11 +230,30 @@ export function SubidaSap() {
             <Dato etiqueta="Cruce por factura" valor={r.conMatchFactura} destacado />
           </dl>
 
+          {(r.omitidasPorFecha > 0 || r.omitidasPorProbable > 0) && (
+            <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              Se dejaron fuera{" "}
+              {r.omitidasPorFecha > 0 && (
+                <>
+                  <strong>{r.omitidasPorFecha}</strong> filas por el rango de fechas
+                </>
+              )}
+              {r.omitidasPorFecha > 0 && r.omitidasPorProbable > 0 && " y "}
+              {r.omitidasPorProbable > 0 && (
+                <>
+                  <strong>{r.omitidasPorProbable}</strong> por ser probables repetidos
+                </>
+              )}
+              .
+            </p>
+          )}
+
           <p className="mt-4 text-sm text-slate-600">
-            Monto Real: <span className="font-medium text-slate-900">{moneda.format(r.montoReal)}</span>
+            Monto Real cargado:{" "}
+            <span className="font-medium text-slate-900">{moneda.format(r.montoReal)}</span>
             {r.totalDeclarado !== null && (
               <>
-                {" · "}total declarado por SAP: {moneda.format(r.totalDeclarado)}
+                {" · "}total del archivo según SAP: {moneda.format(r.totalDeclarado)}
                 {r.deltaTotal !== null && r.deltaTotal > 0.005 * r.filasLeidas ? (
                   <span className="ml-1 font-medium text-rose-700">
                     (descuadre de {moneda.format(r.deltaTotal)})
@@ -212,13 +263,6 @@ export function SubidaSap() {
                 )}
               </>
             )}
-          </p>
-
-          <p className="mt-1 text-sm text-slate-600">
-            Cruzaron contra una factura pre-registrada {r.conMatchFactura} de{" "}
-            {r.filasLeidas - r.rechazadas} filas
-            {r.conTagInferido > 0 && ` · ${r.conTagInferido} con Hunting Zone inferida por #TAG`}
-            .
           </p>
 
           {r.facturasAmbiguas > 0 && (
