@@ -40,6 +40,10 @@ const ENTIDADES: Record<string, { tabla: string; campos: string[] }> = {
     tabla: "cecos",
     campos: ["codigo_sap", "nombre", "usa_proyectos", "activo"],
   },
+  "anios-fiscales": {
+    tabla: "anios_fiscales",
+    campos: ["fy", "activo"],
+  },
 };
 
 type Registro = Record<string, string | number | boolean | null>;

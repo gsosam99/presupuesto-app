@@ -5,10 +5,11 @@
  *   npx supabase gen types typescript --project-id <PROJECT_ID> --schema public > src/types/supabase.ts
  *
  * Hasta que exista un proyecto Supabase vivo contra el cual generar, este
- * archivo declara a mano las 8 tablas que hoy tocan los Route Handlers y
+ * archivo declara a mano las 9 tablas que hoy tocan los Route Handlers y
  * Server Components (cecos, ordenes_internas, hunting_zones,
- * facturas_preregistradas, presupuestos, solicitudes, gastos, cargas) —
- * copiadas de los `create table`/`alter table` de supabase/schema.sql — y
+ * facturas_preregistradas, presupuestos, solicitudes, gastos, cargas,
+ * anios_fiscales) — copiadas de los `create table`/`alter table` de
+ * supabase/schema.sql — y
  * deja el resto de las tablas y todas las vistas bajo el stub genérico
  * `Record<string, Json>` de siempre. Los tipos de dominio (los que usa la UI)
  * viven en src/types/index.ts.
@@ -44,6 +45,19 @@ type EstadoCargaDB = "procesando" | "completada" | "fallida";
 // ---------------------------------------------------------------------------
 // Tablas tipadas a mano
 // ---------------------------------------------------------------------------
+
+interface AniosFiscalesRow {
+  id: string;
+  fy: number;
+  activo: boolean;
+  created_at: string;
+}
+interface AniosFiscalesInsert {
+  id?: string;
+  fy: number;
+  activo?: boolean;
+  created_at?: string;
+}
 
 interface CecosRow {
   id: string;
@@ -397,6 +411,12 @@ type TablasConocidas = {
   };
   gastos: { Row: GastosRow; Insert: GastosInsert; Update: Partial<GastosInsert>; Relationships: [] };
   cargas: { Row: CargasRow; Insert: CargasInsert; Update: Partial<CargasInsert>; Relationships: [] };
+  anios_fiscales: {
+    Row: AniosFiscalesRow;
+    Insert: AniosFiscalesInsert;
+    Update: Partial<AniosFiscalesInsert>;
+    Relationships: [];
+  };
 };
 
 export type Database = {

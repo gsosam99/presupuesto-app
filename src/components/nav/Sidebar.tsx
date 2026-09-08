@@ -8,6 +8,7 @@ import { Menu, PanelLeftClose, PanelLeftOpen, Settings, X } from "lucide-react";
 import { BotonSalir } from "@/components/auth/BotonSalir";
 
 import { NAVEGACION } from "./navegacion";
+import { SelectorAnioFiscal } from "./SelectorAnioFiscal";
 
 const CLAVE_COLAPSADO = "ienn:sidebar-colapsado";
 /** Same-tab: `storage` no dispara en el propio documento que escribe. */
@@ -46,13 +47,15 @@ function snapshotColapsadoServidor(): boolean {
 
 interface Props {
   usuario: { email: string };
+  aniosFiscales: Array<{ fy: number; etiqueta: string }>;
+  fySeleccionado: number;
 }
 
-function esRutaActiva(pathname: string, href: string): boolean {
+export function esRutaActiva(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function Sidebar({ usuario }: Props) {
+export function Sidebar({ usuario, aniosFiscales, fySeleccionado }: Props) {
   const pathname = usePathname();
   const colapsado = useSyncExternalStore(
     suscribirseColapsado,
@@ -103,7 +106,9 @@ export function Sidebar({ usuario }: Props) {
           </span>
           <span className="block text-sm font-extrabold text-white">IENN Gastos</span>
         </Link>
-        <span className="w-8" aria-hidden />
+        <div className="w-24">
+          <SelectorAnioFiscal anios={aniosFiscales} seleccionado={fySeleccionado} colapsado={false} />
+        </div>
       </header>
 
       {/* Backdrop del drawer mobile. */}
@@ -162,6 +167,14 @@ export function Sidebar({ usuario }: Props) {
               <PanelLeftClose className="size-4" aria-hidden />
             )}
           </button>
+        </div>
+
+        <div className="pb-3">
+          <SelectorAnioFiscal
+            anios={aniosFiscales}
+            seleccionado={fySeleccionado}
+            colapsado={colapsado && !mobileAbierto}
+          />
         </div>
 
         <nav aria-label="Principal" className="flex-1 overflow-y-auto px-2 pb-4">

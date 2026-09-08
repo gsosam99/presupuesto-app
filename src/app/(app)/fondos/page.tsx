@@ -1,6 +1,7 @@
 import Link from "next/link";
 
-import { etiquetaTrimestre, fyActual, fyEtiqueta, trimestreActual } from "@/lib/fiscal";
+import { etiquetaTrimestre, fyEtiqueta, trimestreActual } from "@/lib/fiscal";
+import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { moneda } from "@/lib/format";
 import { agruparPorUnidad, obtenerDisponibilidad } from "@/lib/presupuesto/disponibilidad";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -8,25 +9,14 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 export const metadata = { title: "Fondos — IENN Gastos App" };
 export const dynamic = "force-dynamic";
 
-export default async function FondosPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ fy?: string }>;
-}) {
-  const params = await searchParams;
-  const fy = Number(params.fy) || fyActual();
+export default async function FondosPage() {
+  const fy = await obtenerFySeleccionado();
   const tActual = trimestreActual();
 
   const supabase = await createSupabaseServerClient();
 
-  const [filas, anios] = await Promise.all([
-    obtenerDisponibilidad(supabase, fy),
-    supabase.from("v_anios_fiscales").select("fy, etiqueta"),
-  ]);
-
+  const filas = await obtenerDisponibilidad(supabase, fy);
   const unidades = agruparPorUnidad(filas);
-  const fys = ((anios.data ?? []) as Array<{ fy: number }>).map((a) => a.fy);
-  const errorCarga = anios.error ?? null;
 
   const totalDisponibleHoy = unidades.reduce((s, u) => s + u.saldoActual, 0);
   const totalPorHabilitar = unidades.reduce((s, u) => s + u.porHabilitar, 0);
@@ -48,22 +38,9 @@ export default async function FondosPage({
           </p>
         </div>
 
-        <nav className="flex gap-1" aria-label="Año fiscal">
-          {fys.map((f) => (
-            <Link
-              key={f}
-              href={`/fondos?fy=${f}`}
-              className={
-                "rounded-md px-3 py-1.5 text-sm font-semibold " +
-                (f === fy
-                  ? "bg-[var(--navy)] text-white"
-                  : "border border-[var(--line)] bg-white text-[var(--ink-soft)] hover:bg-[var(--line-soft)]")
-              }
-            >
-              {fyEtiqueta(f)}
-            </Link>
-          ))}
-        </nav>
+        <span className="rounded-md bg-[var(--navy)] px-3 py-1.5 text-sm font-semibold text-white">
+          FY {fyEtiqueta(fy)}
+        </span>
       </header>
 
       <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -86,12 +63,6 @@ export default async function FondosPage({
           </p>
         </article>
       </section>
-
-      {errorCarga && (
-        <p className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
-          No se pudieron cargar los años fiscales: {errorCarga.message}
-        </p>
-      )}
 
       {sinPresupuesto && (
         <p className="mt-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">

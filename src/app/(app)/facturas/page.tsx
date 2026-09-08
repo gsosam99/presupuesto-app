@@ -5,7 +5,8 @@ import {
   type OpcionOi,
   type Sugerencias,
 } from "@/components/facturas/FormularioFactura";
-import { etiquetaTrimestre, fyActual, trimestreActual } from "@/lib/fiscal";
+import { etiquetaTrimestre, trimestreActual } from "@/lib/fiscal";
+import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { moneda } from "@/lib/format";
 import { obtenerDisponibilidad } from "@/lib/presupuesto/disponibilidad";
 import { obtenerOrdenesInternasActivas } from "@/lib/presupuesto/ordenesInternas";
@@ -31,7 +32,7 @@ interface FilaConciliacion {
 export default async function FacturasPage() {
   const supabase = await createSupabaseServerClient();
 
-  const fy = fyActual();
+  const fy = await obtenerFySeleccionado();
   const tActual = trimestreActual();
 
   // Fondos del trimestre en curso por OI: se muestran al elegir la orden, que

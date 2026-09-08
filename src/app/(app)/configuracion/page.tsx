@@ -3,6 +3,7 @@ import {
   type CampoMaestra,
   type FilaMaestra,
 } from "@/components/maestras/TablaMaestra";
+import { fyEtiqueta } from "@/lib/fiscal";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Configuración — IENN Gastos App" };
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function ConfiguracionPage() {
   const supabase = await createSupabaseServerClient();
 
-  const [ois, hzs, cecos] = await Promise.all([
+  const [ois, hzs, cecos, anios] = await Promise.all([
     supabase
       .from("ordenes_internas")
       .select(
@@ -23,6 +24,7 @@ export default async function ConfiguracionPage() {
       .select("id, nombre, tag_principal, color_hex, orden_display, archivar_automatico, activo")
       .order("orden_display"),
     supabase.from("cecos").select("id, codigo_sap, nombre, usa_proyectos, activo").order("codigo_sap"),
+    supabase.from("anios_fiscales").select("id, fy, activo").order("fy", { ascending: false }),
   ]);
 
   const opcionesCeco = ((cecos.data ?? []) as Array<{ id: string; codigo_sap: string }>).map(
@@ -80,7 +82,17 @@ export default async function ConfiguracionPage() {
     { clave: "activo", etiqueta: "Activo", tipo: "booleano", ancho: "w-20" },
   ];
 
-  const errorCarga = ois.error ?? hzs.error ?? cecos.error ?? null;
+  const filasAnios = ((anios.data ?? []) as Array<{ id: string; fy: number; activo: boolean }>).map(
+    (a) => ({ ...a, etiqueta: fyEtiqueta(a.fy) }),
+  );
+
+  const camposAnios: CampoMaestra[] = [
+    { clave: "fy", etiqueta: "FY (año de inicio)", tipo: "numero", obligatorio: true, ancho: "w-32" },
+    { clave: "etiqueta", etiqueta: "Etiqueta", tipo: "texto", soloLectura: true, ancho: "w-28" },
+    { clave: "activo", etiqueta: "Activo", tipo: "booleano", ancho: "w-20" },
+  ];
+
+  const errorCarga = ois.error ?? hzs.error ?? cecos.error ?? anios.error ?? null;
 
   return (
     <main className="mx-auto w-full max-w-[1240px] px-5 py-8">
@@ -101,6 +113,21 @@ export default async function ConfiguracionPage() {
       )}
 
       <section className="mt-8">
+        <h2 className="ui-section-title">Años fiscales</h2>
+        <p className="mb-3 mt-1 text-sm text-[var(--muted)]">
+          El ciclo arranca en octubre: el FY 2026 es el período Oct-2026..Sep-2027
+          (&quot;26/27&quot;). Crea el próximo año fiscal acá antes de que empiece, para
+          que aparezca en el selector de todas las pantallas.
+        </p>
+        <TablaMaestra
+          entidad="anios-fiscales"
+          campos={camposAnios}
+          filas={filasAnios as unknown as FilaMaestra[]}
+          etiquetaAlta="Nuevo año fiscal"
+        />
+      </section>
+
+      <section className="mt-12">
         <h2 className="ui-section-title">Órdenes internas</h2>
         <p className="mb-3 mt-1 text-sm text-[var(--muted)]">
           Las de tipo <strong>Real</strong> son órdenes de SAP: cuelgan de un CeCo y

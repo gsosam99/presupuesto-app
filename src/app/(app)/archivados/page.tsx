@@ -2,6 +2,7 @@ import {
   TablaArchivados,
   type GastoArchivado,
 } from "@/components/archivados/TablaArchivados";
+import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { moneda } from "@/lib/format";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
 
 export default async function ArchivadosPage() {
   const supabase = await createSupabaseServerClient();
+  const fy = await obtenerFySeleccionado();
 
   const { data, error } = await supabase
     .from("v_gastos_enriquecidos")
@@ -17,6 +19,7 @@ export default async function ArchivadosPage() {
       "id, fecha_documento, factura, proveedor, proveedor_codigo, texto_referencia, grupo_clase_coste, monto_real, ceco_codigo_raw, oi_codigo_raw, hunting_zone",
     )
     .eq("estado_revision", "excluido")
+    .eq("fy", fy)
     .order("fecha_documento", { ascending: false })
     .limit(1000);
 

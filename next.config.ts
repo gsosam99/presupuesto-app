@@ -9,6 +9,13 @@ const scriptSrc = esDesarrollo
   : "script-src 'self' 'unsafe-inline'";
 
 const nextConfig: NextConfig = {
+  // El indicador de ruta de Next (botón circular) va en bottom-right: en
+  // bottom-left (default) tapa los controles inferiores del sidebar
+  // (Configuración / cerrar sesión). Solo afecta a desarrollo.
+  devIndicators: {
+    position: "bottom-right",
+  },
+
   // El exportador del Flujo E lee la plantilla y Chart.js desde disco en
   // runtime; sin esto no viajan al bundle serverless de Vercel.
   outputFileTracingIncludes: {

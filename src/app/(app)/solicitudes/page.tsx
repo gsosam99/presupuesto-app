@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { etiquetaTrimestre, fyEtiqueta } from "@/lib/fiscal";
+import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { moneda } from "@/lib/format";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { EstadoSolicitud, TipoSolicitud } from "@/types";
@@ -29,11 +30,13 @@ const ESTILO_ESTADO: Record<EstadoSolicitud, string> = {
 
 export default async function SolicitudesPage() {
   const supabase = await createSupabaseServerClient();
+  const fy = await obtenerFySeleccionado();
 
   const [solicitudes, ois] = await Promise.all([
     supabase
       .from("solicitudes")
       .select("id, tipo, estado, fy, trimestre, titulo, monto_solicitado, created_at, id_oi")
+      .eq("fy", fy)
       .order("created_at", { ascending: false })
       .limit(200),
     supabase.from("ordenes_internas").select("id, codigo_oi"),
@@ -65,13 +68,13 @@ export default async function SolicitudesPage() {
 
         <div className="flex gap-2">
           <Link
-            href="/solicitudes/nueva?tipo=extra_plan"
+            href={`/solicitudes/nueva?tipo=extra_plan&fy=${fy}`}
             className="rounded-md bg-[var(--navy)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
           >
             Nuevo extra plan
           </Link>
           <Link
-            href="/solicitudes/nueva?tipo=prorroga"
+            href={`/solicitudes/nueva?tipo=prorroga&fy=${fy}`}
             className="rounded-md border border-[var(--line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--line-soft)]"
           >
             Nueva prórroga

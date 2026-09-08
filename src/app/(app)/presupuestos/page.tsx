@@ -1,5 +1,6 @@
 import { SubidaPresupuesto } from "@/components/presupuestos/SubidaPresupuesto";
 import { fyEtiqueta, nombreMes } from "@/lib/fiscal";
+import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { moneda } from "@/lib/format";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -16,10 +17,12 @@ interface FilaPresupuesto {
 
 export default async function PresupuestosPage() {
   const supabase = await createSupabaseServerClient();
+  const fy = await obtenerFySeleccionado();
 
   const { data, error } = await supabase
     .from("v_presupuesto_oi_mes")
-    .select("fy, mes, monto_plan, monto_suplemento_extra_plan, monto_total");
+    .select("fy, mes, monto_plan, monto_suplemento_extra_plan, monto_total")
+    .eq("fy", fy);
 
   const filas = (data ?? []) as unknown as FilaPresupuesto[];
 

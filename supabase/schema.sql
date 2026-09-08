@@ -578,18 +578,9 @@ group by fp.id, fp.numero_factura, fp.numero_normalizado, fp.proveedor_codigo,
 alter view public.v_conciliacion_facturas set (security_invoker = on);
 
 
--- 7.5 Años fiscales con movimiento (evita traer miles de filas para listar 4).
-create or replace view public.v_anios_fiscales as
-select
-  g.fy,
-  public.fy_etiqueta(g.fy)    as etiqueta,
-  count(*)                    as gastos,
-  round(sum(g.monto_real), 2) as monto
-from public.gastos g
-group by g.fy
-order by g.fy desc;
-
-alter view public.v_anios_fiscales set (security_invoker = on);
+-- 7.5 Años fiscales con movimiento — la definición de v_anios_fiscales vive
+-- en la sección 12 (maestra anios_fiscales), que la reemplaza con "create or
+-- replace view" y agrega los FY sin gastos todavía. No redefinir acá.
 
 -- ----------------------------------------------------------------------------
 -- 7.6 Flujo D — Rolling Forecast
@@ -920,3 +911,61 @@ create index if not exists idx_fp_ceco on public.facturas_preregistradas(id_ceco
 -- v_gastos_periodo resuelve la UNIDAD PRESUPUESTARIA de cada gasto por
 -- precedencia: OI real → CeCo → tag (este último solo para data legacy que
 -- llegó con etiqueta y sin CeCo). Ver "unidad_presupuestaria_fallback_tag_v2".
+
+-- ============================================================================
+-- 12. Años fiscales (maestra) — 2026-09-07
+-- ============================================================================
+-- Hasta ahora v_anios_fiscales listaba los FY agregando public.gastos: un FY
+-- nuevo sin gastos todavía (p.ej. el que se está por abrir) no podía aparecer
+-- en ningún selector. Esta tabla es la fuente de verdad de "qué FY existen",
+-- independiente de si ya tienen movimiento.
+
+create table if not exists public.anios_fiscales (
+  id          uuid primary key default gen_random_uuid(),
+  fy          smallint not null unique,
+  activo      boolean not null default true,
+  created_at  timestamptz not null default now(),
+  constraint anios_fiscales_fy_rango check (fy between 2015 and 2100)
+);
+
+comment on table public.anios_fiscales is
+  'Maestra de años fiscales habilitados en la app. Un FY puede existir acá antes de tener gastos/presupuesto.';
+
+-- Backfill: todo FY que ya aparece en cualquier tabla transaccional/maestra.
+insert into public.anios_fiscales (fy)
+select distinct fy from (
+  select fy from public.gastos
+  union
+  select fy from public.presupuestos
+  union
+  select fy from public.solicitudes
+  union
+  select fy from public.ordenes_internas where fy is not null
+) todos
+on conflict (fy) do nothing;
+
+alter table public.anios_fiscales enable row level security;
+
+drop policy if exists "acceso_autenticado" on public.anios_fiscales;
+create policy "acceso_autenticado" on public.anios_fiscales
+  for all to authenticated
+  using (true) with check (true);
+
+-- v_anios_fiscales ahora sale de la maestra (LEFT JOIN gastos): un FY sin
+-- gastos aparece igual, con gastos=0 y monto=null, en vez de estar ausente.
+-- Nota: "activo" va al final del select list — Postgres no permite que un
+-- create or replace view reordene o inserte columnas en medio de las que ya
+-- existían en la vista anterior (solo agregar al final).
+create or replace view public.v_anios_fiscales as
+select
+  a.fy,
+  public.fy_etiqueta(a.fy)      as etiqueta,
+  coalesce(count(g.id), 0)      as gastos,
+  round(sum(g.monto_real), 2)   as monto,
+  a.activo
+from public.anios_fiscales a
+left join public.gastos g on g.fy = a.fy
+group by a.fy, a.activo
+order by a.fy desc;
+
+alter view public.v_anios_fiscales set (security_invoker = on);

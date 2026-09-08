@@ -4,6 +4,7 @@ import {
   type OpcionAsignacion,
   type Sugerencias,
 } from "@/components/triaje/TablaTriaje";
+import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { moneda } from "@/lib/format";
 import { obtenerOrdenesInternasActivas } from "@/lib/presupuesto/ordenesInternas";
 import { etiquetaVigencia, vigenteEnFecha } from "@/lib/presupuesto/vigencia";
@@ -17,6 +18,7 @@ const TAMANO_LOTE = 500;
 
 export default async function TriajePage() {
   const supabase = await createSupabaseServerClient();
+  const fy = await obtenerFySeleccionado();
 
   const [pendientes, conteo, ois, tags, hzs, valores] = await Promise.all([
     supabase
@@ -25,12 +27,14 @@ export default async function TriajePage() {
         "id, fecha_documento, factura, proveedor, proveedor_codigo, texto_referencia, grupo_clase_coste, monto_real, ceco_codigo, ceco_codigo_raw, oi_codigo_raw, codigo_oi, hunting_zone, fase, motivo, detalle, nota",
       )
       .eq("estado_revision", "pendiente")
+      .eq("fy", fy)
       .order("fecha_documento", { ascending: false })
       .limit(TAMANO_LOTE),
     supabase
       .from("gastos")
       .select("monto_real", { count: "exact" })
-      .eq("estado_revision", "pendiente"),
+      .eq("estado_revision", "pendiente")
+      .eq("fy", fy),
     obtenerOrdenesInternasActivas(supabase),
     supabase
       .from("hunting_zone_tags")
