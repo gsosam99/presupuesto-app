@@ -26,6 +26,7 @@ export async function GET(): Promise<Response> {
       fyStartMonth: 10,
       fases: datos.fases,
       hzs: datos.hzs,
+      hzOrdenPaleta: datos.hzOrdenPaleta,
       monthlyCurrent: datos.monthlyCurrent,
       asof: datos.asof,
       records: datos.records.map((r) => [

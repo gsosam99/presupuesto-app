@@ -15,7 +15,14 @@ export interface DatosExport {
   currentFY: string;
   fyStartMonth: number;
   fases: string[];
+  /** Ordenadas por monto, de mayor a menor: es el orden en que se listan. */
   hzs: string[];
+  /**
+   * Orden de la maestra. Reparte la paleta: si se usara la posición en `hzs`,
+   * que va por monto, cada zona cambiaría de color al moverse el ranking — y
+   * el export mostraría colores distintos a los de la app.
+   */
+  hzOrdenPaleta: string[];
   monthlyCurrent: Record<string, number>;
   asof: string;
   /** [af, fase, hz, motivo, detalle, monto, n] — formato compacto del original. */

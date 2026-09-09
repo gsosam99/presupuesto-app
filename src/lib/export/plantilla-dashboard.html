@@ -18,6 +18,9 @@
   --r:10px; --gap:16px;
 }
 *{box-sizing:border-box}
+/* Sin esto, un [hidden] sobre .kpis no oculta nada: el display:grid del autor
+   le gana al display:none del user-agent, y el bloque vacío igual ocupa lugar. */
+[hidden]{display:none!important}
 html,body{margin:0}
 body{font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--canvas);font-feature-settings:"tnum" 1;-webkit-font-smoothing:antialiased;font-size:14px}
 body.locked{overflow:hidden}
@@ -306,6 +309,7 @@ a{cursor:pointer}
     </div>
 
     <div class="kpis" id="kpis"></div>
+    <div class="kpis" id="kpis-ing" hidden></div>
     <p class="note-nomina"><b>Nota:</b> el reporte no incluye los gastos de Nómina.</p>
 
     <div class="seg-bar">
@@ -325,6 +329,12 @@ a{cursor:pointer}
         <div class="card-h"><h3 id="comp-title">Composición del gasto</h3><span class="note">Acumulado del período</span></div>
         <div class="chart-box tall"><canvas id="c-comp"></canvas></div>
       </div>
+    </div>
+
+    <!-- A ancho completo y fuera del grid-2, que es de dos columnas. -->
+    <div class="card grid-1" id="card-ingresos" hidden>
+      <div class="card-h"><h3>Ingresos vs. gastos por año fiscal</h3><span class="note">Neto = ingresos − gastos</span></div>
+      <div class="chart-box tall"><canvas id="c-ingresos"></canvas></div>
     </div>
   </section>
 
@@ -390,7 +400,12 @@ a{cursor:pointer}
 const RAW = /*__DATOS__*/;
 const PALETTE=['#2E75B6','#2FB9CE','#E0A93E','#1E8A8A','#9E2B33','#A97C86','#0C3A57','#6E8FA3','#C6832F','#4B6B7E','#7C9AAD','#B0563E'];
 const FASE_COLORS={'Ideación':'#2FB9CE','Incubación':'#2E75B6','Escalamiento':'#1E8A8A','Continuidad Operativa':'#E0A93E','(sin asignar)':'#B7C1C9'};
-const HZ_COLORS={};RAW.hzs.forEach((h,i)=>HZ_COLORS[h]=NA_test(h)?'#B7C1C9':PALETTE[i%PALETTE.length]);
+/* El color se reparte por el ORDEN DE LA MAESTRA (hzOrdenPaleta), no por la
+   posición en RAW.hzs, que va ordenada por monto: si no, una zona cambiaría de
+   color cada vez que se mueve el ranking, y no coincidiría con la app.
+   Los exports viejos no traen hzOrdenPaleta: se cae a RAW.hzs. */
+const HZ_ORDEN=(RAW.hzOrdenPaleta&&RAW.hzOrdenPaleta.length)?RAW.hzOrdenPaleta:RAW.hzs;
+const HZ_COLORS={};RAW.hzs.forEach(h=>{const i=HZ_ORDEN.indexOf(h);HZ_COLORS[h]=NA_test(h)?'#B7C1C9':PALETTE[(i<0?0:i)%PALETTE.length];});
 function NA_test(s){return /sin asignar|no aplica/i.test(s);}
 const NA_RE=/sin asignar|no aplica/i;
 const state={yrFrom:0,yrTo:RAW.anios.length-1,hzSel:null,seg:'fase'};
@@ -401,10 +416,17 @@ const fmtAbbr=n=>n>=1e6?'$'+(n/1e6).toFixed(2)+'M':n>=1e3?'$'+(n/1e3).toFixed(0)
 const pct=(a,b)=>b>0?(a/b*100):0;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const rec=r=>({af:r[0],fase:r[1],hz:r[2],motivo:r[3],detalle:r[4],monto:r[5],n:r[6]});
+/* Ingresos: mismo formato posicional que un gasto más `concepto` al final. */
+const recIng=r=>({af:r[0],fase:r[1],hz:r[2],motivo:r[3],detalle:r[4],monto:r[5],n:r[6],concepto:r[7]});
+const HAY_INGRESOS=!!(RAW.ingresos&&RAW.ingresos.length);
 
 const selYears=()=>RAW.anios.slice(state.yrFrom,state.yrTo+1);
 const hzOnly=()=>RAW.records.map(rec).filter(r=>state.hzSel===null||state.hzSel.has(r.hz));
 const filtered=()=>{const ys=new Set(selYears());return hzOnly().filter(r=>ys.has(r.af));};
+/* Los ingresos pasan por los MISMOS dos filtros que los gastos (zona marcada y
+   rango de años) para que el neto compare peras con peras. */
+const ingHzOnly=()=>(RAW.ingresos||[]).map(recIng).filter(r=>state.hzSel===null||state.hzSel.has(r.hz));
+const ingFiltered=()=>{const ys=new Set(selYears());return ingHzOnly().filter(r=>ys.has(r.af));};
 function sumBy(rows,k){const m={};rows.forEach(r=>{m[r[k]]=m[r[k]]||{monto:0,n:0};m[r[k]].monto+=r.monto;m[r[k]].n+=r.n;});return m;}
 const total=rows=>rows.reduce((s,r)=>s+r.monto,0);
 function monthsElapsed(){const mm=RAW.monthlyCurrent||{};const keys=Object.keys(mm).sort();if(!keys.length)return 12;const vals=keys.map(k=>mm[k]).slice().sort((a,b)=>a-b);const med=vals[Math.floor(vals.length/2)]||1;let end=keys.length;while(end>0&&mm[keys[end-1]]<0.2*med)end--;return Math.max(1,Math.min(12,end));}
@@ -492,6 +514,16 @@ function renderKPIs(rows){
   document.getElementById('kpis').innerHTML=`
     <div class="kpi"><div class="kl">Total Gastos Acumulados (${period})</div><div class="kv num">${fmtAbbr(gTot)}</div><div class="kx">${fmtUSD(gTot)}</div></div>
     <div class="kpi"><div class="kl">Gastos Año Fiscal Actual (${cur})</div><div class="kv num">${fmtAbbr(curTot)} ${pill}</div><div class="kx">${projSub}</div></div>`;
+
+  /* Bloque aparte y no dos cards más arriba: .kpis es una grilla de dos
+     columnas, así que un 2-up nuevo entra sin tocar el CSS. */
+  const kIng=document.getElementById('kpis-ing');
+  if(!HAY_INGRESOS){kIng.hidden=true;return;}
+  const iTot=total(ingFiltered()),net=iTot-gTot;
+  kIng.hidden=false;
+  kIng.innerHTML=`
+    <div class="kpi"><div class="kl">Ingresos Acumulados (${period})</div><div class="kv num" style="color:var(--ok)">${fmtAbbr(iTot)}</div><div class="kx">${fmtUSD(iTot)}</div></div>
+    <div class="kpi"><div class="kl">Resultado Neto (${period})</div><div class="kv num" style="color:${net>=0?'var(--ok)':'var(--bad)'}">${fmtAbbr(net)}</div><div class="kx">Ingresos ${fmtUSD(iTot)} − gastos ${fmtUSD(gTot)}</div></div>`;
 }
 
 /* plugins */
@@ -527,6 +559,31 @@ function renderResumen(rows){
     options:{responsive:true,maintainAspectRatio:false,animation:{duration:400},
       plugins:{legend:{position:'right',labels:{boxWidth:11,font:{size:10.5},padding:8}},
         tooltip:{callbacks:{label:c=>' '+c.label+': '+fmtUSD(c.parsed)+' ('+pct(c.parsed,gtot).toFixed(0)+'%)'}}}}});
+
+  renderIngresos(rows,years);
+}
+
+/* Ingresos vs. gastos por año fiscal. La card entera se oculta si el export no
+   trae ingresos, así que un reporte sin ellos se ve igual que antes. */
+function renderIngresos(rows,years){
+  const card=document.getElementById('card-ingresos');
+  if(!HAY_INGRESOS){card.hidden=true;return;}
+  card.hidden=false;
+
+  const porAf=(rs)=>{const m={};rs.forEach(r=>{m[r.af]=(m[r.af]||0)+r.monto;});return m;};
+  const g=porAf(rows),i=porAf(ingFiltered());
+  const gastos=years.map(y=>g[y]||0),ingresos=years.map(y=>i[y]||0);
+
+  mk('c-ingresos',{type:'bar',
+    data:{labels:years,datasets:[
+      {label:'Ingresos',data:ingresos,backgroundColor:'#1E8A8A',maxBarThickness:46,borderRadius:1},
+      {label:'Gastos',data:gastos,backgroundColor:'#9E2B33',maxBarThickness:46,borderRadius:1},
+      {label:'Neto',type:'line',data:years.map((_,k)=>ingresos[k]-gastos[k]),borderColor:'#0C3A57',backgroundColor:'#0C3A57',borderWidth:2,tension:.25,pointRadius:3}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:400},
+      scales:{x:{grid:{display:false}},y:{ticks:{callback:v=>fmtAbbr(v)},grid:{color:'#EEF2F5'},grace:'8%'}},
+      plugins:{legend:{position:'top',labels:{boxWidth:11,font:{size:10.5},padding:8}},
+        tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+fmtUSD(c.raw)}}}}});
 }
 
 /* motivo -> HZ */
