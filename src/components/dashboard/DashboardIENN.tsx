@@ -184,13 +184,21 @@ export function DashboardIENN({
   datos: DatosDashboard;
   enPresentacion?: boolean;
 }) {
+  // El color se reparte por el ORDEN DE LA MAESTRA, no por la posición en
+  // `hzs`: esa lista va ordenada por monto, así que usarla acá haría que los
+  // colores bailaran cada mes al moverse el ranking.
   const hzColors = useMemo(() => {
     const m: Record<string, string> = {};
-    datos.hzs.forEach((h, i) => {
-      m[h] = NA_RE.test(h) ? "#B7C1C9" : PALETTE[i % PALETTE.length];
+    datos.hzs.forEach((h) => {
+      if (NA_RE.test(h)) {
+        m[h] = "#B7C1C9";
+        return;
+      }
+      const i = datos.hzOrdenPaleta.indexOf(h);
+      m[h] = PALETTE[(i < 0 ? 0 : i) % PALETTE.length];
     });
     return m;
-  }, [datos.hzs]);
+  }, [datos.hzs, datos.hzOrdenPaleta]);
 
   // El modo presentación se marca en <html> para que el CSS pueda ocultar la
   // navegación de la app sin depender de headers ni de props que atraviesen
@@ -238,6 +246,18 @@ export function DashboardIENN({
     return hzOnly.filter((r) => ys.has(r.af));
   }, [hzOnly, selYears]);
 
+  // Los ingresos pasan por los MISMOS dos filtros que los gastos (Hunting Zone
+  // marcada y rango de años), para que el neto compare peras con peras.
+  const ingresosHz = useMemo(
+    () => datos.ingresos.filter((r) => todasMarcadas || hzMarcadas.has(r.hz)),
+    [datos.ingresos, hzMarcadas, todasMarcadas],
+  );
+
+  const ingresosRows = useMemo(() => {
+    const ys = new Set(selYears);
+    return ingresosHz.filter((r) => ys.has(r.af));
+  }, [ingresosHz, selYears]);
+
   const total = (rs: RegistroDashboard[]) => rs.reduce((s, r) => s + r.monto, 0);
 
   const mesesTranscurridos = useMemo(() => {
@@ -267,6 +287,8 @@ export function DashboardIENN({
 
   // --- Benchmark ------------------------------------------------------------
   const gTot = total(rows);
+  const iTot = total(ingresosRows);
+  const netTot = iTot - gTot;
   const revNum = Number(rev.replace(/[^\d]/g, "")) || 0;
   const planNum = Number(planInv.replace(/[^\d]/g, "")) || 0;
 
@@ -371,6 +393,73 @@ export function DashboardIENN({
     } as ChartConfiguration;
   }, [tab, imprimiendo, selYears, dims, mtx, colorOf, datos.currentFY, projShown, mesesTranscurridos]);
 
+  /** Ingresos contra gastos por año fiscal, con el neto como línea. */
+  const cfgIngresos = useMemo<ChartConfiguration | null>(() => {
+    if (tab !== "resumen" && !imprimiendo) return null;
+    if (datos.ingresos.length === 0) return null;
+
+    const years = selYears;
+    const gastoPorAf = new Map<string, number>();
+    for (const r of rows) gastoPorAf.set(r.af, (gastoPorAf.get(r.af) ?? 0) + r.monto);
+    const ingresoPorAf = new Map<string, number>();
+    for (const r of ingresosRows) ingresoPorAf.set(r.af, (ingresoPorAf.get(r.af) ?? 0) + r.monto);
+
+    const gastos = years.map((y) => gastoPorAf.get(y) ?? 0);
+    const ingresos = years.map((y) => ingresoPorAf.get(y) ?? 0);
+
+    return {
+      type: "bar",
+      data: {
+        labels: years,
+        datasets: [
+          {
+            label: "Ingresos",
+            data: ingresos,
+            backgroundColor: "#1E8A8A",
+            maxBarThickness: 46,
+            borderRadius: 1,
+          },
+          {
+            label: "Gastos",
+            data: gastos,
+            backgroundColor: "#9E2B33",
+            maxBarThickness: 46,
+            borderRadius: 1,
+          },
+          {
+            label: "Neto",
+            type: "line",
+            data: years.map((_, i) => ingresos[i] - gastos[i]),
+            borderColor: "#0C3A57",
+            backgroundColor: "#0C3A57",
+            borderWidth: 2,
+            tension: 0.25,
+            pointRadius: 3,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 400 },
+        scales: {
+          x: { grid: { display: false } },
+          y: {
+            ticks: { callback: (v) => fmtAbbr(Number(v)) },
+            grid: { color: "#EEF2F5" },
+            grace: "8%",
+          },
+        },
+        plugins: {
+          legend: leyendaDe("top"),
+          tooltip: {
+            callbacks: { label: (c) => " " + c.dataset.label + ": " + fmtUSD(Number(c.raw)) },
+          },
+        },
+      },
+    } as ChartConfiguration;
+  }, [tab, imprimiendo, datos.ingresos.length, selYears, rows, ingresosRows]);
+
   const cfgComp = useMemo<ChartConfiguration | null>(() => {
     if (tab !== "resumen" && !imprimiendo) return null;
     const gtot = dims.reduce((s, d) => s + acc[d], 0);
@@ -464,6 +553,7 @@ export function DashboardIENN({
 
   const refAnio = useChart(cfgAnio);
   const refComp = useChart(cfgComp);
+  const refIngresos = useChart(cfgIngresos);
   const refMotivo = useChart(cfgMotivo);
 
   // --- Hunting Zone ---------------------------------------------------------
@@ -706,6 +796,30 @@ export function DashboardIENN({
                     <span>$</span>
                     <input id="in-rev" inputMode="numeric" value={rev} onChange={montoInput(setRev)} />
                   </div>
+                  {/* El campo sigue siendo manual: "Revenue de EP" es el
+                      facturado de la empresa y los ingresos cargados son los de
+                      los proyectos — pueden ser magnitudes distintas, así que
+                      sustituirlo solo sería mentir. Esto es un atajo explícito. */}
+                  {iTot > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setRev(Math.round(iTot).toLocaleString("en-US"))}
+                      className="no-print"
+                      style={{
+                        background: "none",
+                        border: "none",
+                        padding: 0,
+                        marginTop: 4,
+                        font: "inherit",
+                        fontSize: 11,
+                        color: "#8FB4C9",
+                        textDecoration: "underline",
+                        cursor: "pointer",
+                      }}
+                    >
+                      usar ingresos registrados ({fmtAbbr(iTot)})
+                    </button>
+                  )}
                   <label className="il" htmlFor="in-plan">
                     Plan de inversión EP (USD)
                   </label>
@@ -780,6 +894,32 @@ export function DashboardIENN({
               </div>
             </div>
 
+            {/* Bloque aparte y no dos cards más arriba: .kpis es una grilla de
+                dos columnas, así que un 2-up nuevo entra sin tocar el CSS. */}
+            {datos.ingresos.length > 0 && (
+              <div className="kpis">
+                <div className="kpi">
+                  <div className="kl">Ingresos Acumulados ({periodo})</div>
+                  <div className="kv num" style={{ color: "var(--ok)" }}>
+                    {fmtAbbr(iTot)}
+                  </div>
+                  <div className="kx">{fmtUSD(iTot)}</div>
+                </div>
+                <div className="kpi">
+                  <div className="kl">Resultado Neto ({periodo})</div>
+                  <div
+                    className="kv num"
+                    style={{ color: netTot >= 0 ? "var(--ok)" : "var(--bad)" }}
+                  >
+                    {fmtAbbr(netTot)}
+                  </div>
+                  <div className="kx">
+                    Ingresos {fmtUSD(iTot)} − gastos {fmtUSD(gTot)}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <p className="note-nomina">
               <b>Nota:</b> el reporte no incluye los gastos de Nómina.
             </p>
@@ -828,6 +968,20 @@ export function DashboardIENN({
                 </div>
               </div>
             </div>
+
+            {/* A ancho completo y debajo del grid-2: ese grid es de dos
+                columnas y un tercer hijo quedaría desbalanceado. */}
+            {datos.ingresos.length > 0 && (
+              <div className="card grid-1">
+                <div className="card-h">
+                  <h3>Ingresos vs. gastos por año fiscal</h3>
+                  <span className="note">Neto = ingresos − gastos</span>
+                </div>
+                <div className="chart-box tall">
+                  <canvas ref={refIngresos} />
+                </div>
+              </div>
+            )}
           </section>
         )}
 

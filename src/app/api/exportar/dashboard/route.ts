@@ -37,6 +37,17 @@ export async function GET(): Promise<Response> {
         r.monto,
         r.n,
       ]),
+      ingresos: datos.ingresos.map((r) => [
+        r.af,
+        r.fase,
+        r.hz,
+        r.motivo,
+        r.detalle,
+        r.monto,
+        r.n,
+        r.concepto,
+      ]),
+      monthlyIncomeCurrent: datos.monthlyIncomeCurrent,
     };
 
     const html = await generarHtmlDashboard(paraExport);

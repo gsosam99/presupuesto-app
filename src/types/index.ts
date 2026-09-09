@@ -52,7 +52,13 @@ export interface HuntingZone {
   id: string;
   nombre: string;
   tag_principal: string | null;
+  /**
+   * Sin uso: la columna sigue en la base pero la app no la lee ni la escribe.
+   * El dashboard reparte su paleta por `orden_display`. No volver a exponerla
+   * en Configuración sin cablearla de verdad primero.
+   */
   color_hex: string | null;
+  /** Ordena Configuración y el desplegable de Facturas, y fija el color en el dashboard. */
   orden_display: number;
   activo: boolean;
   /** Si es true, la ingesta manda sus gastos directo a la papelera. */
@@ -340,6 +346,34 @@ export interface ResultadoParseo<T> {
 }
 
 // ---------------------------------------------------------------------------
+// Ingresos
+// ---------------------------------------------------------------------------
+
+/**
+ * Ingreso recibido por un proyecto. Espejo de public.ingresos.
+ *
+ * A diferencia de un gasto no cuelga de un CeCo ni de una Orden Interna: se
+ * imputa a una Hunting Zone y a un período (fy + mes). Se carga a mano, así que
+ * no tiene estado de revisión ni trazabilidad de carga.
+ */
+export interface Ingreso {
+  id: string;
+  fy: number;
+  mes: number;
+  id_hunting_zone: string;
+  /** Qué se cobró. Obligatorio: es el descriptor principal del ingreso. */
+  concepto: string;
+  fase: string | null;
+  motivo: string | null;
+  detalle: string | null;
+  monto: number;
+  nota: string | null;
+  creado_por: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
 
@@ -353,12 +387,26 @@ export interface RegistroDashboard {
   n: number;
 }
 
+/** Fila de la vista v_dashboard_ingresos: igual que un gasto más `concepto`. */
+export interface RegistroIngresoDashboard extends RegistroDashboard {
+  concepto: string;
+}
+
 export interface DatosDashboard {
   anios: string[];
   currentFY: string;
   fases: string[];
+  /** Hunting Zones ordenadas por monto (gasto + ingreso) de mayor a menor. */
   hzs: string[];
+  /**
+   * Orden de la maestra (`orden_display`). Es el índice ESTABLE con el que se
+   * reparte la paleta: si se usara la posición en `hzs`, que va por monto, los
+   * colores bailarían cada mes al cambiar el ranking.
+   */
+  hzOrdenPaleta: string[];
   monthlyCurrent: Record<string, number>;
+  monthlyIncomeCurrent: Record<string, number>;
   asof: string;
   records: RegistroDashboard[];
+  ingresos: RegistroIngresoDashboard[];
 }

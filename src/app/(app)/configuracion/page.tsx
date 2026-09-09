@@ -1,8 +1,5 @@
-import {
-  TablaMaestra,
-  type CampoMaestra,
-  type FilaMaestra,
-} from "@/components/maestras/TablaMaestra";
+import { PanelMaestras, type SeccionMaestra } from "@/components/maestras/PanelMaestras";
+import type { CampoMaestra, FilaMaestra } from "@/components/maestras/TablaMaestra";
 import { fyEtiqueta } from "@/lib/fiscal";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -21,7 +18,7 @@ export default async function ConfiguracionPage() {
       .order("codigo_oi"),
     supabase
       .from("hunting_zones")
-      .select("id, nombre, tag_principal, color_hex, orden_display, archivar_automatico, activo")
+      .select("id, nombre, tag_principal, orden_display, archivar_automatico, activo")
       .order("orden_display"),
     supabase.from("cecos").select("id, codigo_sap, nombre, usa_proyectos, activo").order("codigo_sap"),
     supabase.from("anios_fiscales").select("id, fy, activo").order("fy", { ascending: false }),
@@ -64,7 +61,6 @@ export default async function ConfiguracionPage() {
   const camposHz: CampoMaestra[] = [
     { clave: "nombre", etiqueta: "Nombre", tipo: "texto", obligatorio: true },
     { clave: "tag_principal", etiqueta: "Etiqueta", tipo: "texto", ancho: "w-32" },
-    { clave: "color_hex", etiqueta: "Color", tipo: "texto", ancho: "w-28" },
     { clave: "orden_display", etiqueta: "Orden", tipo: "numero", ancho: "w-24" },
     {
       clave: "archivar_automatico",
@@ -94,6 +90,63 @@ export default async function ConfiguracionPage() {
 
   const errorCarga = ois.error ?? hzs.error ?? cecos.error ?? anios.error ?? null;
 
+  const secciones: SeccionMaestra[] = [
+    {
+      id: "anios-fiscales",
+      titulo: "Años fiscales",
+      entidad: "anios-fiscales",
+      campos: camposAnios,
+      filas: filasAnios as unknown as FilaMaestra[],
+      etiquetaAlta: "Nuevo año fiscal",
+      descripcion: (
+        <>
+          El ciclo arranca en octubre: el FY 2026 es el período Oct-2026..Sep-2027
+          (&quot;26/27&quot;). Crea el próximo año fiscal acá antes de que empiece, para que
+          aparezca en el selector de todas las pantallas.
+        </>
+      ),
+    },
+    {
+      id: "ordenes-internas",
+      titulo: "Órdenes internas",
+      entidad: "ordenes-internas",
+      campos: camposOi,
+      filas: (ois.data ?? []) as unknown as FilaMaestra[],
+      etiquetaAlta: "Nueva orden interna",
+      descripcion: (
+        <>
+          Las de tipo <strong>Real</strong> son órdenes de SAP: cuelgan de un CeCo y pueden
+          vencer. Las de tipo <strong>Etiqueta</strong> (#CAM) son transversales y sirven
+          para asignar Hunting Zone a los gastos imputados directo al CeCo.
+        </>
+      ),
+    },
+    {
+      id: "hunting-zones",
+      titulo: "Hunting Zones",
+      entidad: "hunting-zones",
+      campos: camposHz,
+      filas: (hzs.data ?? []) as unknown as FilaMaestra[],
+      etiquetaAlta: "Nueva Hunting Zone",
+      descripcion: (
+        <>
+          Activar <strong>Auto-archivar</strong> manda a la papelera los gastos de esa zona
+          en cada carga de SAP, sin intervención. <strong>Orden</strong> ordena esta tabla y
+          el desplegable de Facturas, y decide qué color de la paleta le toca a cada zona en
+          el dashboard — donde las zonas se listan por gasto, de mayor a menor.
+        </>
+      ),
+    },
+    {
+      id: "cecos",
+      titulo: "Centros de Costo",
+      entidad: "cecos",
+      campos: camposCeco,
+      filas: (cecos.data ?? []) as unknown as FilaMaestra[],
+      etiquetaAlta: "Nuevo Centro de Costo",
+    },
+  ];
+
   return (
     <main className="mx-auto w-full max-w-[1240px] px-5 py-8">
       <header>
@@ -113,57 +166,7 @@ export default async function ConfiguracionPage() {
       )}
 
       <section className="mt-8">
-        <h2 className="ui-section-title">Años fiscales</h2>
-        <p className="mb-3 mt-1 text-sm text-[var(--muted)]">
-          El ciclo arranca en octubre: el FY 2026 es el período Oct-2026..Sep-2027
-          (&quot;26/27&quot;). Crea el próximo año fiscal acá antes de que empiece, para
-          que aparezca en el selector de todas las pantallas.
-        </p>
-        <TablaMaestra
-          entidad="anios-fiscales"
-          campos={camposAnios}
-          filas={filasAnios as unknown as FilaMaestra[]}
-          etiquetaAlta="Nuevo año fiscal"
-        />
-      </section>
-
-      <section className="mt-12">
-        <h2 className="ui-section-title">Órdenes internas</h2>
-        <p className="mb-3 mt-1 text-sm text-[var(--muted)]">
-          Las de tipo <strong>Real</strong> son órdenes de SAP: cuelgan de un CeCo y
-          pueden vencer. Las de tipo <strong>Etiqueta</strong> (#CAM) son transversales y
-          sirven para asignar Hunting Zone a los gastos imputados directo al CeCo.
-        </p>
-        <TablaMaestra
-          entidad="ordenes-internas"
-          campos={camposOi}
-          filas={(ois.data ?? []) as unknown as FilaMaestra[]}
-          etiquetaAlta="Nueva orden interna"
-        />
-      </section>
-
-      <section className="mt-12">
-        <h2 className="ui-section-title">Hunting Zones</h2>
-        <p className="mb-3 mt-1 text-sm text-[var(--muted)]">
-          Marcar <strong>Auto-archivar</strong> manda a la papelera los gastos de esa zona
-          en cada carga de SAP, sin intervención.
-        </p>
-        <TablaMaestra
-          entidad="hunting-zones"
-          campos={camposHz}
-          filas={(hzs.data ?? []) as unknown as FilaMaestra[]}
-          etiquetaAlta="Nueva Hunting Zone"
-        />
-      </section>
-
-      <section className="mt-12">
-        <h2 className="ui-section-title">Centros de Costo</h2>
-        <TablaMaestra
-          entidad="cecos"
-          campos={camposCeco}
-          filas={(cecos.data ?? []) as unknown as FilaMaestra[]}
-          etiquetaAlta="Nuevo Centro de Costo"
-        />
+        <PanelMaestras secciones={secciones} />
       </section>
     </main>
   );

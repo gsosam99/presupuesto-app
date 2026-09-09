@@ -168,6 +168,44 @@ input[type="date"] {
   font-variant-numeric: tabular-nums;
 }
 
+/* Pestañas reutilizables. El dashboard tiene las suyas, pero viven bajo el
+ * scope .dash (dashboard.css) y no se pueden usar fuera. El estado activo
+ * cuelga de aria-selected para que sea imposible pintar una pestaña sin
+ * marcarla accesible. */
+.ui-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+}
+.ui-tab {
+  background: none;
+  border: none;
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--muted);
+  padding: 11px 18px;
+  cursor: pointer;
+  position: relative;
+  white-space: nowrap;
+}
+.ui-tab:hover {
+  color: var(--ink);
+}
+.ui-tab[aria-selected="true"] {
+  color: var(--navy);
+}
+.ui-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 2.5px;
+  background: var(--blue);
+}
+
 /* ---------------------------------------------------------------------------
  * Flujo E — modo presentación e impresión
  * ------------------------------------------------------------------------ */

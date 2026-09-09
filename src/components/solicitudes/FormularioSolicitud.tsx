@@ -11,7 +11,7 @@ import {
   CONTROL_TEXTAREA,
   ETIQUETA,
 } from "@/components/ui/estilos";
-import { etiquetaTrimestre, mesesDeTrimestre, nombreMes } from "@/lib/fiscal";
+import { etiquetaTrimestre, MESES_FY, mesesDeTrimestre, nombreMes } from "@/lib/fiscal";
 import type { TipoSolicitud } from "@/types";
 
 export interface OpcionOi {
@@ -42,9 +42,6 @@ interface Props {
   trimestreInicial?: number;
   montoInicial?: number;
 }
-
-/** Meses del año fiscal en orden de presentación: Oct → Sep. */
-const MESES_FY = [10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 function lineaVacia(mes: number): Linea {
   return {

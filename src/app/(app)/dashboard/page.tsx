@@ -18,11 +18,13 @@ export default async function DashboardPage({
   const supabase = await createSupabaseServerClient();
   const datos = await obtenerDatosDashboard(supabase);
 
-  if (datos.records.length === 0) {
+  if (datos.records.length === 0 && datos.ingresos.length === 0) {
     return (
       <main className="mx-auto w-full max-w-3xl px-6 py-16 text-center">
         <h1 className="ui-title">Dashboard</h1>
-        <p className="ui-lead mx-auto">Todavía no hay gastos cargados para mostrar.</p>
+        <p className="ui-lead mx-auto">
+          Todavía no hay gastos ni ingresos cargados para mostrar.
+        </p>
       </main>
     );
   }

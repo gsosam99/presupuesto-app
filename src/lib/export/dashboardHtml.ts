@@ -20,6 +20,16 @@ export interface DatosExport {
   asof: string;
   /** [af, fase, hz, motivo, detalle, monto, n] — formato compacto del original. */
   records: Array<[string, string, string, string, string, number, number]>;
+  /**
+   * Igual que `records` más `concepto` al final.
+   *
+   * OJO: la plantilla HTML todavía NO dibuja ingresos — sólo lee RAW.records,
+   * RAW.hzs y RAW.monthlyCurrent, e ignora las claves que no conoce. Van acá
+   * para que el archivo descargado ya lleve el dato encima, pero hasta que la
+   * plantilla se actualice el export muestra sólo gastos.
+   */
+  ingresos: Array<[string, string, string, string, string, number, number, string]>;
+  monthlyIncomeCurrent: Record<string, number>;
 }
 
 /**

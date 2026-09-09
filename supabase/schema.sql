@@ -991,3 +991,154 @@ alter table public.cargas
 
 comment on column public.cargas.revertida_at is
   'Momento en que se deshizo la carga. Los gastos que había insertado se borraron.';
+
+-- ============================================================================
+-- 14. Ingresos (transaccional, carga manual) — 2026-09-09
+-- ============================================================================
+-- Ingresos efectivamente recibidos por los proyectos. NO se presupuestan ni se
+-- proyectan: acá sólo vive el REAL. Es el gemelo de public.gastos del lado del
+-- haber, pero cargado a mano — no hay reporte de SAP que ingerir, ni hash de
+-- deduplicación, ni sala de triaje.
+--
+-- Se imputa a una HUNTING ZONE y a un PERÍODO (fy + mes), nunca a un CeCo ni a
+-- una Orden Interna: esas dos son unidades de GASTO. La taxonomía suma un
+-- cuarto campo, `concepto`, que no existe del lado de gastos.
+--
+-- Este bloque es AUTOCONTENIDO a propósito (tabla + índices + trigger + RLS +
+-- vistas), igual que las secciones 10 a 13. Los bucles genéricos de las
+-- secciones 6 y 8 corren ANTES que esto: un
+-- `drop trigger if exists ... on public.ingresos` sobre una tabla que todavía
+-- no existe aborta la corrida entera con undefined_table (el IF EXISTS cubre
+-- el trigger ausente, no la tabla ausente). NO agregar 'ingresos' a esos
+-- arrays — public.solicitudes tampoco está, por la misma razón.
+
+create table if not exists public.ingresos (
+  id               uuid primary key default gen_random_uuid(),
+
+  -- Período explícito, igual que public.presupuestos: el ingreso se reconoce
+  -- por mes, no hay "día" que registrar.
+  fy               smallint not null,
+  mes              smallint not null,
+
+  id_hunting_zone  uuid not null references public.hunting_zones(id) on delete restrict,
+
+  -- Taxonomía: CUATRO campos independientes de texto libre. `concepto` es el
+  -- qué (obligatorio); fase/motivo/detalle son opcionales y comparten
+  -- vocabulario con los gastos a través de v_valores_taxonomia.
+  concepto         text not null,
+  fase             text,
+  motivo           text,
+  detalle          text,
+
+  monto            numeric(14, 2) not null,
+  nota             text,
+
+  -- Primer día del mes del ingreso, derivado de fy+mes: el ciclo arranca en
+  -- octubre, así que oct..dic caen en el año `fy` y ene..sep en `fy + 1`.
+  -- Generada (make_date es IMMUTABLE) para que v_ingreso_mensual emita el
+  -- mismo 'YYYY-MM' que el dashboard ya consume desde v_gasto_mensual.
+  fecha_periodo    date generated always as (
+    make_date((fy + case when mes >= 10 then 0 else 1 end)::int, mes::int, 1)
+  ) stored,
+
+  creado_por       uuid references auth.users(id) on delete set null,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now(),
+
+  constraint ingresos_fy_rango          check (fy between 2015 and 2100),
+  constraint ingresos_mes_rango         check (mes between 1 and 12),
+  constraint ingresos_concepto_no_vacio check (btrim(concepto) <> ''),
+  -- Se permiten negativos (devoluciones, reversos); cero no significa nada.
+  constraint ingresos_monto_no_cero     check (monto <> 0)
+);
+
+comment on table public.ingresos is
+  'Ingresos recibidos por los proyectos. Carga 100% manual. Sólo REAL: los ingresos no se presupuestan.';
+comment on column public.ingresos.fecha_periodo is
+  'Generada: primer día del mes (fy+mes resueltos al calendario). Insumo de v_ingreso_mensual.';
+
+create index if not exists idx_ingresos_fy_mes   on public.ingresos(fy, mes);
+create index if not exists idx_ingresos_hz       on public.ingresos(id_hunting_zone);
+create index if not exists idx_ingresos_concepto on public.ingresos(concepto);
+create index if not exists idx_ingresos_fase     on public.ingresos(fase);
+
+drop trigger if exists trg_ingresos_updated_at on public.ingresos;
+create trigger trg_ingresos_updated_at
+  before update on public.ingresos
+  for each row execute function public.tg_set_updated_at();
+
+alter table public.ingresos enable row level security;
+
+drop policy if exists "acceso_autenticado" on public.ingresos;
+create policy "acceso_autenticado" on public.ingresos
+  for all to authenticated
+  using (true) with check (true);
+
+-- Todo FY con ingresos tiene que existir en la maestra de años fiscales. El
+-- backfill de la sección 12 corre antes de que exista esta tabla, así que va acá.
+insert into public.anios_fiscales (fy)
+select distinct fy from public.ingresos
+on conflict (fy) do nothing;
+
+-- 14.1 Autocompletado ---------------------------------------------------------
+-- Los valores de ingresos entran al MISMO catálogo que los de gastos (la
+-- taxonomía es un idioma compartido) y se suma la rama nueva campo='concepto',
+-- que hoy sólo alimenta ingresos.
+--
+-- La vista sigue devolviendo exactamente (campo, valor, usos): agregar ramas al
+-- UNION no cambia la lista de columnas, así que el create or replace es seguro
+-- — el 42P16 sólo salta si se reordenan o insertan columnas.
+create or replace view public.v_valores_taxonomia as
+with valores as (
+  select 'fase' as campo, fase as valor from public.gastos where fase is not null
+  union all select 'motivo',  motivo  from public.gastos where motivo is not null
+  union all select 'detalle', detalle from public.gastos where detalle is not null
+  union all select 'fase',    fase    from public.facturas_preregistradas where fase is not null
+  union all select 'motivo',  motivo  from public.facturas_preregistradas where motivo is not null
+  union all select 'detalle', detalle from public.facturas_preregistradas where detalle is not null
+  union all select 'fase',     fase     from public.ingresos where fase is not null
+  union all select 'motivo',   motivo   from public.ingresos where motivo is not null
+  union all select 'detalle',  detalle  from public.ingresos where detalle is not null
+  union all select 'concepto', concepto from public.ingresos where concepto is not null
+)
+select campo, valor, count(*) as usos
+from valores
+group by campo, valor
+order by campo, count(*) desc, valor;
+
+alter view public.v_valores_taxonomia set (security_invoker = on);
+
+-- 14.2 Dashboard --------------------------------------------------------------
+-- v_dashboard_registros y v_gasto_mensual NO se tocan: su DDL no vive en este
+-- repo. Estas dos son sus gemelas del lado ingresos y se consultan EN PARALELO
+-- desde src/lib/dashboard/datos.ts.
+--
+-- Las 7 primeras columnas replican exacto la forma de v_dashboard_registros
+-- (af, fase, hz, motivo, detalle, monto, n) para que el cliente reutilice las
+-- mismas funciones de agregación; `concepto` va al final.
+create or replace view public.v_dashboard_ingresos as
+select
+  public.fy_etiqueta(i.fy)                                as af,
+  coalesce(nullif(btrim(i.fase), ''),    '(sin asignar)') as fase,
+  coalesce(hz.nombre,                    '(sin asignar)') as hz,
+  coalesce(nullif(btrim(i.motivo), ''),  '(sin asignar)') as motivo,
+  coalesce(nullif(btrim(i.detalle), ''), '(sin asignar)') as detalle,
+  round(sum(i.monto), 2)                                  as monto,
+  count(*)                                                as n,
+  btrim(i.concepto)                                       as concepto
+from public.ingresos i
+left join public.hunting_zones hz on hz.id = i.id_hunting_zone
+group by 1, 2, 3, 4, 5, 8;
+
+alter view public.v_dashboard_ingresos set (security_invoker = on);
+
+-- Misma forma que v_gasto_mensual: (fy, periodo 'YYYY-MM', monto).
+create or replace view public.v_ingreso_mensual as
+select
+  i.fy,
+  to_char(i.fecha_periodo, 'YYYY-MM') as periodo,
+  round(sum(i.monto), 2)              as monto
+from public.ingresos i
+group by i.fy, to_char(i.fecha_periodo, 'YYYY-MM');
+
+alter view public.v_ingreso_mensual set (security_invoker = on);

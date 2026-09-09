@@ -10,8 +10,11 @@
  *   disponible — y el origen real de los links "Pedir prórroga"/"Solicitar
  *   extra plan" en fondos/page.tsx) → Solicitudes (la acción que nace de ahí).
  *
- * Dashboard queda suelto arriba (no se agrupa un "inicio"). Configuración no
- * vive acá: es administración de maestras, se ancla aparte al pie del sidebar.
+ * El bloque sin título de arriba junta las pantallas que NO son un flujo:
+ * Dashboard (sólo lectura) e Ingresos (carga manual, sin pipeline detrás). Un
+ * grupo titulado "Ingresos" con un único item "Ingresos" sería un encabezado
+ * repitiendo a su propio hijo. Configuración no vive acá: es administración de
+ * maestras, se ancla aparte al pie del sidebar.
  */
 
 import {
@@ -21,6 +24,7 @@ import {
   LayoutDashboard,
   ListChecks,
   PiggyBank,
+  TrendingUp,
   Upload,
   Wallet,
   type LucideIcon,
@@ -41,7 +45,10 @@ export interface GrupoNav {
 export const NAVEGACION: GrupoNav[] = [
   {
     titulo: null,
-    items: [{ href: "/dashboard", etiqueta: "Dashboard", icono: LayoutDashboard }],
+    items: [
+      { href: "/dashboard", etiqueta: "Dashboard", icono: LayoutDashboard },
+      { href: "/ingresos", etiqueta: "Ingresos", icono: TrendingUp },
+    ],
   },
   {
     titulo: "Gastos",

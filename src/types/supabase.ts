@@ -5,10 +5,10 @@
  *   npx supabase gen types typescript --project-id <PROJECT_ID> --schema public > src/types/supabase.ts
  *
  * Hasta que exista un proyecto Supabase vivo contra el cual generar, este
- * archivo declara a mano las 9 tablas que hoy tocan los Route Handlers y
+ * archivo declara a mano las 10 tablas que hoy tocan los Route Handlers y
  * Server Components (cecos, ordenes_internas, hunting_zones,
  * facturas_preregistradas, presupuestos, solicitudes, gastos, cargas,
- * anios_fiscales) — copiadas de los `create table`/`alter table` de
+ * anios_fiscales, ingresos) — copiadas de los `create table`/`alter table` de
  * supabase/schema.sql — y
  * deja el resto de las tablas y todas las vistas bajo el stub genérico
  * `Record<string, Json>` de siempre. Los tipos de dominio (los que usa la UI)
@@ -374,8 +374,41 @@ interface TablaGenerica {
   Relationships: [];
 }
 
+interface IngresosRow {
+  id: string;
+  fy: number;
+  mes: number;
+  id_hunting_zone: string;
+  concepto: string;
+  fase: string | null;
+  motivo: string | null;
+  detalle: string | null;
+  monto: number;
+  nota: string | null;
+  /** Columna generada (stored): no se inserta ni se actualiza. */
+  fecha_periodo: string | null;
+  creado_por: string | null;
+  created_at: string;
+  updated_at: string;
+}
+interface IngresosInsert {
+  id?: string;
+  fy: number;
+  mes: number;
+  id_hunting_zone: string;
+  concepto: string;
+  fase?: string | null;
+  motivo?: string | null;
+  detalle?: string | null;
+  monto: number;
+  nota?: string | null;
+  creado_por?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 /**
- * Las 8 tablas tipadas a mano. Separado de `Tables` abajo (en vez de un
+ * Las 10 tablas tipadas a mano. Separado de `Tables` abajo (en vez de un
  * literal con propiedades nombradas + índice `[key: string]`) porque TS
  * rechaza esa combinación (TS2411) cuando los tipos concretos no son
  * estructuralmente idénticos al stub genérico — la intersección de dos tipos
@@ -419,6 +452,12 @@ type TablasConocidas = {
     Row: AniosFiscalesRow;
     Insert: AniosFiscalesInsert;
     Update: Partial<AniosFiscalesInsert>;
+    Relationships: [];
+  };
+  ingresos: {
+    Row: IngresosRow;
+    Insert: IngresosInsert;
+    Update: Partial<IngresosInsert>;
     Relationships: [];
   };
 };

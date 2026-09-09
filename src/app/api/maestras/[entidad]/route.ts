@@ -30,7 +30,6 @@ const ENTIDADES: Record<string, { tabla: string; campos: string[] }> = {
     campos: [
       "nombre",
       "tag_principal",
-      "color_hex",
       "orden_display",
       "archivar_automatico",
       "activo",
