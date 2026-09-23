@@ -336,6 +336,9 @@ export default async function FondosPage() {
                                   className="rounded-full bg-[rgba(46,117,182,0.1)] px-2 py-0.5 text-[10px] font-semibold text-[var(--blue)]"
                                 >
                                   arrastre {pedido.estado}
+                                  {pedido.estado === "aprobada" &&
+                                    t.estado_trimestre === "actual" &&
+                                    " · se aplica al cierre"}
                                 </Link>
                               ) : (
                                 puedeSolicitar &&

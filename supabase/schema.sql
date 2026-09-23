@@ -855,10 +855,168 @@ create trigger trg_solicitudes_updated_at
   before update on public.solicitudes
   for each row execute function public.tg_set_updated_at();
 
--- NOTA: la función disponibilidad_trimestral() se define en la migración
--- "motor_disponibilidad_trimestral_v2". Encadena los cuatro trimestres con un
--- CTE recursivo porque lo disponible en T depende de cuánto sobró y se salvó
--- en T-1. Ver supabase/migrations para el cuerpo completo.
+-- Motor de disponibilidad trimestral (migración "motor_disponibilidad_trimestral_v2").
+-- Copiado de producción el 2026-09-23 con pg_get_functiondef: hasta entonces
+-- no vivía en este repo. Encadena los cuatro trimestres con un CTE recursivo
+-- porque lo disponible en T depende de cuánto sobró y se salvó en T-1.
+--
+-- Arrastre (prórroga): una solicitud 'prorroga' APROBADA sobre el trimestre T
+-- pasa a T+1 least(saldo de T al cierre, monto aprobado). Solo cuenta cuando T
+-- ya cerró, así que una prórroga pedida de forma preventiva (con T en curso)
+-- funciona sin cambios: se aprueba antes y se aplica al cerrar, sobre lo que
+-- efectivamente sobró. El Q4 no arrastra: el cálculo es por año fiscal.
+CREATE OR REPLACE FUNCTION public.disponibilidad_trimestral(p_fy smallint, p_corte date DEFAULT CURRENT_DATE)
+ RETURNS TABLE(clave text, id_oi uuid, codigo_oi text, id_ceco uuid, codigo_ceco text, id_hunting_zone uuid, hunting_zone text, trimestre smallint, estado_trimestre text, monto_plan numeric, monto_extra numeric, arrastre_recibido numeric, disponible numeric, consumido numeric, saldo numeric, arrastre_siguiente numeric, vencido numeric)
+ LANGUAGE sql
+ STABLE
+ SET search_path TO ''
+AS $function$
+with recursive trimestres as (
+  select
+    t::smallint as trimestre,
+    (make_date(p_fy, 10, 1) + ((t - 1) * 3 || ' month')::interval)::date as inicio,
+    (make_date(p_fy, 10, 1) + ((t - 1) * 3 || ' month')::interval
+       + interval '3 month' - interval '1 day')::date                    as fin
+  from generate_series(1, 4) as t
+),
+estados as (
+  select
+    trimestre,
+    case
+      when fin    <  date_trunc('month', p_corte)::date then 'cerrado'
+      when inicio >  date_trunc('month', p_corte)::date then 'futuro'
+      else 'actual'
+    end as estado_trimestre
+  from trimestres
+),
+unidades as (
+  select distinct
+    coalesce(p.id_oi::text, 'ceco:' || p.id_ceco::text) as clave,
+    p.id_oi, p.id_ceco
+  from public.presupuestos p
+  where p.fy = p_fy
+  union
+  select distinct
+    coalesce(g.id_oi::text, 'ceco:' || g.id_ceco::text),
+    g.id_oi, g.id_ceco
+  from public.v_gastos_periodo g
+  where g.fy_efectivo = p_fy
+    and g.estado_revision <> 'excluido'
+    and (g.id_oi is not null or g.id_ceco is not null)
+),
+grilla as (
+  select u.clave, u.id_oi, u.id_ceco, t.trimestre, e.estado_trimestre
+  from unidades u
+  cross join trimestres t
+  join estados e on e.trimestre = t.trimestre
+),
+plan_t as (
+  select
+    coalesce(p.id_oi::text, 'ceco:' || p.id_ceco::text) as clave,
+    public.trimestre_fy(p.mes)                          as trimestre,
+    sum(p.monto) filter (where p.tipo = 'plan')         as plan,
+    sum(p.monto) filter (where p.tipo = 'extra_plan')   as extra
+  from public.presupuestos p
+  where p.fy = p_fy
+  group by 1, 2
+),
+consumo_t as (
+  select
+    coalesce(g.id_oi::text, 'ceco:' || g.id_ceco::text) as clave,
+    g.trimestre,
+    sum(g.monto_real)                                   as consumido
+  from public.v_gastos_periodo g
+  where g.fy_efectivo = p_fy
+    and g.estado_revision <> 'excluido'
+    and (g.id_oi is not null or g.id_ceco is not null)
+  group by 1, 2
+),
+prorrogas as (
+  select
+    coalesce(s.id_oi::text, 'ceco:' || s.id_ceco::text) as clave,
+    s.trimestre,
+    sum(s.monto_solicitado)                             as monto
+  from public.solicitudes s
+  where s.tipo = 'prorroga' and s.estado = 'aprobada' and s.fy = p_fy
+  group by 1, 2
+),
+datos as (
+  select
+    g.clave, g.id_oi, g.id_ceco, g.trimestre, g.estado_trimestre,
+    coalesce(pl.plan, 0)     as monto_plan,
+    coalesce(pl.extra, 0)    as monto_extra,
+    coalesce(c.consumido, 0) as consumido,
+    coalesce(pr.monto, 0)    as prorroga
+  from grilla g
+  left join plan_t    pl on pl.clave = g.clave and pl.trimestre = g.trimestre
+  left join consumo_t c  on c.clave  = g.clave and c.trimestre  = g.trimestre
+  left join prorrogas pr on pr.clave = g.clave and pr.trimestre = g.trimestre
+),
+cadena as (
+  select
+    d.clave, d.id_oi, d.id_ceco, d.trimestre, d.estado_trimestre,
+    d.monto_plan, d.monto_extra, d.consumido, d.prorroga,
+    0::numeric as arrastre_recibido
+  from datos d
+  where d.trimestre = 1
+
+  union all
+
+  -- Solo un trimestre YA CERRADO define cuánto se salva; mientras está
+  -- abierto el saldo todavía puede consumirse y no arrastra nada.
+  select
+    sig.clave, sig.id_oi, sig.id_ceco, sig.trimestre, sig.estado_trimestre,
+    sig.monto_plan, sig.monto_extra, sig.consumido, sig.prorroga,
+    case
+      when c.estado_trimestre = 'cerrado'
+        then least(
+          greatest(c.monto_plan + c.monto_extra + c.arrastre_recibido - c.consumido, 0),
+          c.prorroga
+        )
+      else 0
+    end
+  from cadena c
+  join datos sig on sig.clave = c.clave and sig.trimestre = c.trimestre + 1
+)
+select
+  c.clave,
+  c.id_oi,
+  oi.codigo_oi,
+  c.id_ceco,
+  ce.codigo_sap as codigo_ceco,
+  oi.id_hunting_zone,
+  hz.nombre as hunting_zone,
+  c.trimestre,
+  c.estado_trimestre,
+  c.monto_plan,
+  c.monto_extra,
+  c.arrastre_recibido,
+  c.monto_plan + c.monto_extra + c.arrastre_recibido               as disponible,
+  c.consumido,
+  c.monto_plan + c.monto_extra + c.arrastre_recibido - c.consumido as saldo,
+  case
+    when c.estado_trimestre = 'cerrado'
+      then least(
+        greatest(c.monto_plan + c.monto_extra + c.arrastre_recibido - c.consumido, 0),
+        c.prorroga
+      )
+    else 0
+  end                                                              as arrastre_siguiente,
+  case
+    when c.estado_trimestre = 'cerrado'
+      then greatest(c.monto_plan + c.monto_extra + c.arrastre_recibido - c.consumido, 0)
+           - least(
+               greatest(c.monto_plan + c.monto_extra + c.arrastre_recibido - c.consumido, 0),
+               c.prorroga
+             )
+    else 0
+  end                                                              as vencido
+from cadena c
+left join public.ordenes_internas oi on oi.id = c.id_oi
+left join public.cecos ce            on ce.id = c.id_ceco
+left join public.hunting_zones hz    on hz.id = oi.id_hunting_zone
+order by coalesce(oi.codigo_oi, ce.codigo_sap), c.trimestre;
+$function$;
 
 -- ============================================================================
 -- 11. Jerarquía HZ / CeCo / OI y vigencia de las órdenes
