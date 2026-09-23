@@ -1603,3 +1603,78 @@ alter view public.v_comprometido_trimestre set (security_invoker = on);
 
 comment on view public.v_comprometido_trimestre is
   'Facturas pre-registradas sin cruzar, por unidad y trimestre. Capa informativa: nunca se suma al consumido de SAP.';
+
+-- ============================================================================
+-- 16. RLS por rol — 2026-09-23
+-- ============================================================================
+-- Reemplaza la política "acceso_autenticado" (using true) por la matriz de
+-- src/lib/permisos.ts. La app ya valida cada acción (requireApiPermiso); esto
+-- es la última barrera, para que una llamada directa a la API de Supabase con
+-- la sesión de un Lector tampoco pueda escribir.
+--
+--   · Lectura: cualquier usuario con rol (sin rol no se ve nada).
+--   · Escritura: según la tabla, ver el arreglo de abajo.
+--
+-- Correr DESPUÉS de la sección 15: sin el administrador inicial en
+-- miembros_equipo nadie podría volver a entrar.
+--
+-- Límite conocido: las transiciones de solicitudes (quién puede aprobar) se
+-- validan en la app; acá Analista puede escribir solicitudes porque las crea.
+
+create or replace function public.rol_en(p_roles public.rol_app[])
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select coalesce(public.rol_actual() = any (p_roles), false);
+$$;
+
+grant execute on function public.rol_en(public.rol_app[]) to authenticated;
+
+do $$
+declare
+  r record;
+begin
+  for r in
+    select * from (values
+      -- tabla,                     insertar,                              actualizar,                            borrar
+      ('cecos',                   '{admin}',                             '{admin}',                             '{admin}'),
+      ('hunting_zones',           '{admin}',                             '{admin}',                             '{admin}'),
+      ('hunting_zone_tags',       '{admin}',                             '{admin}',                             '{admin}'),
+      ('ordenes_internas',        '{admin}',                             '{admin}',                             '{admin}'),
+      ('anios_fiscales',          '{admin}',                             '{admin}',                             '{admin}'),
+      ('miembros_equipo',         '{admin}',                             '{admin}',                             '{admin}'),
+      ('facturas_preregistradas', '{admin,finanzas,analista}',           '{admin,finanzas,analista}',           '{admin,finanzas,analista}'),
+      -- La ingesta inserta y la reversión borra (Finanzas); el triaje actualiza (también Analista).
+      ('gastos',                  '{admin,finanzas}',                    '{admin,finanzas,analista}',           '{admin,finanzas}'),
+      -- La carga masiva de facturas (Analista) también registra su carga.
+      ('cargas',                  '{admin,finanzas,analista}',           '{admin,finanzas,analista}',           '{admin}'),
+      ('cargas_rechazos',         '{admin,finanzas,analista}',           '{admin}',                             '{admin}'),
+      ('presupuestos',            '{admin,finanzas}',                    '{admin,finanzas}',                    '{admin,finanzas}'),
+      ('solicitudes',             '{admin,finanzas,analista}',           '{admin,finanzas,analista}',           '{admin,finanzas}'),
+      ('solicitud_lineas',        '{admin,finanzas,analista}',           '{admin,finanzas,analista}',           '{admin,finanzas,analista}'),
+      ('ingresos',                '{admin,finanzas}',                    '{admin,finanzas}',                    '{admin,finanzas}')
+    ) as t(tabla, ins, upd, del)
+  loop
+    execute format('drop policy if exists "acceso_autenticado" on public.%I', r.tabla);
+    execute format('drop policy if exists "lectura_con_rol" on public.%I', r.tabla);
+    execute format('drop policy if exists "insertar_por_rol" on public.%I', r.tabla);
+    execute format('drop policy if exists "actualizar_por_rol" on public.%I', r.tabla);
+    execute format('drop policy if exists "borrar_por_rol" on public.%I', r.tabla);
+
+    execute format(
+      'create policy "lectura_con_rol" on public.%I for select to authenticated
+         using (public.rol_actual() is not null)', r.tabla);
+    execute format(
+      'create policy "insertar_por_rol" on public.%I for insert to authenticated
+         with check (public.rol_en(%L::public.rol_app[]))', r.tabla, r.ins);
+    execute format(
+      'create policy "actualizar_por_rol" on public.%I for update to authenticated
+         using (public.rol_en(%L::public.rol_app[]))
+         with check (public.rol_en(%L::public.rol_app[]))', r.tabla, r.upd, r.upd);
+    execute format(
+      'create policy "borrar_por_rol" on public.%I for delete to authenticated
+         using (public.rol_en(%L::public.rol_app[]))', r.tabla, r.del);
+  end loop;
+end $$;
