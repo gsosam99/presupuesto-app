@@ -5,6 +5,11 @@ import { etiquetaTrimestre, fyEtiqueta, trimestreActual } from "@/lib/fiscal";
 import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { moneda } from "@/lib/format";
 import { tienePermiso } from "@/lib/permisos";
+import {
+  claveComprometido,
+  obtenerComprometido,
+  obtenerFechaDatosSap,
+} from "@/lib/presupuesto/comprometido";
 import { agruparPorUnidad, obtenerDisponibilidad } from "@/lib/presupuesto/disponibilidad";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -18,7 +23,7 @@ export default async function FondosPage() {
   const supabase = await createSupabaseServerClient();
   const puedeSolicitar = tienePermiso(await obtenerRol(), "solicitudes:crear");
 
-  const [filas, prorrogas] = await Promise.all([
+  const [filas, prorrogas, comprometido, fechaSap] = await Promise.all([
     obtenerDisponibilidad(supabase, fy),
     supabase
       .from("solicitudes")
@@ -26,8 +31,20 @@ export default async function FondosPage() {
       .eq("tipo", "prorroga")
       .eq("fy", fy)
       .neq("estado", "rechazada"),
+    obtenerComprometido(supabase, fy),
+    obtenerFechaDatosSap(supabase),
   ]);
   const unidades = agruparPorUnidad(filas);
+
+  // Lo comprometido de facturas sin cruzar, por unidad (OI o CeCo) y trimestre.
+  const comprometidoDe = (u: { idOi: string | null; idCeco: string | null }, t: number) =>
+    comprometido.data.get(claveComprometido(u.idOi ?? u.idCeco ?? "", t));
+  let totalComprometido = 0;
+  let totalVencidasSinCruzar = 0;
+  for (const c of comprometido.data.values()) {
+    totalComprometido += c.usd;
+    totalVencidasSinCruzar += c.facturasVencidas;
+  }
 
   // Arrastres ya pedidos por unidad y trimestre: evita pedir dos veces el mismo.
   const arrastrePedido = new Map(
@@ -55,6 +72,13 @@ export default async function FondosPage() {
             <strong>se pierde al cerrar el trimestre</strong>, salvo que exista un
             arrastre (prórroga) aprobado que lo pase al siguiente.
           </p>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            {fechaSap
+              ? `Consumido según SAP: datos al ${new Date(fechaSap).toLocaleDateString("es-VE", {
+                  dateStyle: "long",
+                })}.`
+              : "Todavía no hay cargas de SAP completadas."}
+          </p>
         </div>
 
         <span className="rounded-md bg-[var(--navy)] px-3 py-1.5 text-sm font-semibold text-white">
@@ -62,7 +86,7 @@ export default async function FondosPage() {
         </span>
       </header>
 
-      <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <article className="ui-kpi">
           <h2 className="kl">Disponible ahora ({etiquetaTrimestre(tActual)})</h2>
           <p className="kv">{moneda.format(totalDisponibleHoy)}</p>
@@ -81,7 +105,32 @@ export default async function FondosPage() {
             {moneda.format(totalVencido)}
           </p>
         </article>
+        <article className="ui-kpi">
+          <h2 className="kl">Comprometido sin cruzar (app)</h2>
+          <p className="kv">{moneda.format(totalComprometido)}</p>
+          <Link
+            href="/facturas?estado=sin_cruzar"
+            className="mt-1 block text-[11px] font-semibold text-[var(--blue)] underline"
+          >
+            Ver facturas sin cruzar
+            {totalVencidasSinCruzar > 0 && ` · ${totalVencidasSinCruzar} con más de 60 días`}
+          </Link>
+        </article>
       </section>
+
+      <p className="mt-3 text-xs text-[var(--muted)]">
+        <strong>Saldo</strong> es lo que queda según SAP, la única fuente del consumido.{" "}
+        <strong>Comprometido</strong> son facturas USD registradas en la app que SAP todavía
+        no trajo: no se descuenta del saldo, se muestra aparte y desaparece solo cuando la
+        factura cruza. <strong>Saldo proyectado</strong> = saldo − comprometido. Las facturas
+        en Bs y las de más de 60 días sin cruzar no suman al comprometido.
+      </p>
+
+      {comprometido.error && (
+        <p className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          No se pudo leer lo comprometido: {comprometido.error}
+        </p>
+      )}
 
       {prorrogas.error && (
         <p className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -171,7 +220,7 @@ export default async function FondosPage() {
                 </header>
 
                 <div className="overflow-x-auto">
-                  <table className="ui-table min-w-[52rem] text-xs">
+                  <table className="ui-table min-w-[64rem] text-xs">
                     <thead>
                       <tr>
                         <th>Trimestre</th>
@@ -180,7 +229,9 @@ export default async function FondosPage() {
                         <th className="r">Arrastre recibido</th>
                         <th className="r">Disponible</th>
                         <th className="r">Consumido</th>
-                        <th className="r">Saldo</th>
+                        <th className="r">Saldo (SAP)</th>
+                        <th className="r">Comprometido (app)</th>
+                        <th className="r">Saldo proyectado</th>
                         <th className="r">Vencido</th>
                         <th />
                       </tr>
@@ -200,6 +251,8 @@ export default async function FondosPage() {
                           `${u.idOi ?? u.idCeco}:${t.trimestre}`,
                         );
                         const unidadParam = u.idOi ? `oi=${u.idOi}` : `ceco=${u.idCeco}`;
+                        const comp = comprometidoDe(u, t.trimestre);
+                        const proyectado = t.saldo - (comp?.usd ?? 0);
 
                         return (
                           <tr
@@ -245,6 +298,27 @@ export default async function FondosPage() {
                               >
                                 {moneda.format(t.saldo)}
                               </span>
+                            </td>
+                            <td className="r">
+                              {comp && comp.usd > 0 ? moneda.format(comp.usd) : "—"}
+                              {comp && comp.facturasBs > 0 && (
+                                <span className="block text-[10px] text-[var(--muted)]">
+                                  + {comp.facturasBs} en Bs
+                                </span>
+                              )}
+                            </td>
+                            <td className="r">
+                              {comp && comp.usd > 0 ? (
+                                <span
+                                  className={
+                                    "font-semibold " + (proyectado < 0 ? "text-amber-700" : "")
+                                  }
+                                >
+                                  {moneda.format(proyectado)}
+                                </span>
+                              ) : (
+                                "—"
+                              )}
                             </td>
                             <td className="r">
                               {t.vencido > 0 ? (

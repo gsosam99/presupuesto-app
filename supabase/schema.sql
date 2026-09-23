@@ -1551,3 +1551,55 @@ $$;
 
 comment on function public.deshacer_cruce(uuid[]) is
   'Desvincula gastos de su factura pre-registrada y limpia la clasificación que habían heredado.';
+
+-- 15.3 Comprometido: facturas registradas que SAP todavía no trajo -----------
+-- La app y SAP no están conectadas. Para no mantener un "consumido" paralelo
+-- que se desbalancee, el consumo SOLO lo pone SAP (gastos). Lo que la app sabe
+-- antes que SAP se muestra aparte, como COMPROMETIDO, y se cancela solo: en
+-- cuanto la factura cruza, deja de estar acá y su monto real entra por gastos.
+--
+--   · Solo USD: una factura en Bs no tiene tasa confiable; se cuenta aparte.
+--   · Vencidas: después de 60 días sin cruzar se sacan del comprometido (una
+--     factura olvidada no puede inflarlo para siempre) y se listan para revisar.
+--   · Unidad presupuestaria con la misma precedencia que v_gastos_periodo:
+--     OI real → CeCo → etiqueta.
+--   · El trimestre sale de la fecha de la factura (o del alta si no tiene).
+create or replace view public.v_comprometido_trimestre as
+with pendientes as (
+  select
+    fp.id,
+    coalesce(fp.fecha_factura, fp.created_at::date) as fecha,
+    case
+      when oi.tipo = 'real' then fp.id_oi
+      when fp.id_ceco is null then fp.id_oi
+    end as id_oi,
+    case
+      when oi.tipo is distinct from 'real' and fp.id_ceco is not null then fp.id_ceco
+    end as id_ceco,
+    fp.moneda,
+    fp.monto_estimado,
+    coalesce(fp.fecha_factura, fp.created_at::date) < current_date - 60 as vencida
+  from public.facturas_preregistradas fp
+  left join public.ordenes_internas oi on oi.id = fp.id_oi
+  where fp.activo
+    and not exists (select 1 from public.gastos g where g.id_factura_preregistrada = fp.id)
+)
+select
+  public.fy_de_fecha(p.fecha)                                        as fy,
+  public.trimestre_fy(extract(month from p.fecha)::smallint)         as trimestre,
+  p.id_oi,
+  p.id_ceco,
+  coalesce(sum(p.monto_estimado) filter (
+    where not p.vencida and p.moneda = 'USD'), 0)                    as comprometido_usd,
+  count(*) filter (where not p.vencida and p.moneda = 'USD')         as facturas_usd,
+  count(*) filter (where not p.vencida and p.moneda <> 'USD')        as facturas_bs,
+  count(*) filter (where p.vencida)                                  as facturas_vencidas,
+  coalesce(sum(p.monto_estimado) filter (
+    where p.vencida and p.moneda = 'USD'), 0)                        as vencidas_usd
+from pendientes p
+group by 1, 2, 3, 4;
+
+alter view public.v_comprometido_trimestre set (security_invoker = on);
+
+comment on view public.v_comprometido_trimestre is
+  'Facturas pre-registradas sin cruzar, por unidad y trimestre. Capa informativa: nunca se suma al consumido de SAP.';

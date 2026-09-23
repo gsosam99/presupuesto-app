@@ -55,6 +55,7 @@ export default async function NuevaFacturaPage() {
             sugerencias={opciones.sugerencias}
             trimestreActual={etiquetaTrimestre(trimestreActual())}
             volverA="/facturas"
+            fechaDatosSap={opciones.fechaDatosSap}
           />
         </div>
       </section>

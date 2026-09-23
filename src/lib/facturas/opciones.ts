@@ -13,6 +13,11 @@ import type {
   Sugerencias,
 } from "@/components/facturas/FormularioFactura";
 import { trimestreActual } from "@/lib/fiscal";
+import {
+  claveComprometido,
+  obtenerComprometido,
+  obtenerFechaDatosSap,
+} from "@/lib/presupuesto/comprometido";
 import { obtenerDisponibilidad } from "@/lib/presupuesto/disponibilidad";
 import { obtenerOrdenesInternasActivas } from "@/lib/presupuesto/ordenesInternas";
 import { etiquetaVigencia, vigenteEnFy } from "@/lib/presupuesto/vigencia";
@@ -23,6 +28,8 @@ export interface OpcionesFormularioFactura {
   cecos: OpcionCeco[];
   encargados: OpcionSelect[];
   sugerencias: Sugerencias;
+  /** Fecha de la última carga de SAP: el consumido es "al" esa fecha. */
+  fechaDatosSap: string | null;
   error: string | null;
 }
 
@@ -44,12 +51,14 @@ export async function obtenerOpcionesFormulario(
       ]),
   );
 
-  const [ois, hzs, cecosRes, tax, equipo] = await Promise.all([
+  const [ois, hzs, cecosRes, tax, equipo, comprometido, fechaDatosSap] = await Promise.all([
     obtenerOrdenesInternasActivas(supabase),
     supabase.from("hunting_zones").select("id, nombre").eq("activo", true).order("orden_display"),
     supabase.from("cecos").select("id, codigo_sap, nombre").eq("activo", true).order("codigo_sap"),
     supabase.from("v_valores_taxonomia").select("campo, valor").order("usos", { ascending: false }),
     supabase.from("miembros_equipo").select("id, nombre").eq("activo", true).order("nombre"),
+    obtenerComprometido(supabase, fy),
+    obtenerFechaDatosSap(supabase),
   ]);
 
   const hzPorId = new Map((hzs.data ?? []).map((h) => [h.id as string, h.nombre as string]));
@@ -71,6 +80,7 @@ export async function obtenerOpcionesFormulario(
         saldoTrimestre: fondos?.saldo ?? null,
         disponibleTrimestre: fondos?.disponible ?? null,
         consumidoTrimestre: fondos?.consumido ?? null,
+        comprometidoTrimestre: comprometido.data.get(claveComprometido(o.id, tActual))?.usd ?? 0,
         vigencia: o.tipo === "tag" ? null : etiquetaVigencia(o),
       };
     });
@@ -95,6 +105,7 @@ export async function obtenerOpcionesFormulario(
     cecos,
     encargados: (equipo.data ?? []).map((m) => ({ id: m.id, etiqueta: m.nombre })),
     sugerencias,
-    error: error?.message ?? null,
+    fechaDatosSap,
+    error: error?.message ?? comprometido.error,
   };
 }

@@ -24,6 +24,8 @@ export interface OpcionOi {
   saldoTrimestre: number | null;
   disponibleTrimestre: number | null;
   consumidoTrimestre: number | null;
+  /** USD de facturas pre-registradas de esta OI que SAP todavía no trajo. */
+  comprometidoTrimestre: number;
   /** Rango de vigencia legible, o null si la orden está abierta. */
   vigencia: string | null;
 }
@@ -85,6 +87,8 @@ interface Props {
   onGuardada?: (mensaje: string) => void;
   /** Destino del botón "Registrar" (el de "Registrar y cargar otra" se queda). */
   volverA?: string;
+  /** Fecha de la última carga de SAP: el consumido es "al" esa fecha. */
+  fechaDatosSap?: string | null;
 }
 
 /** Trimestre fiscal de una fecha ISO, o null. */
@@ -104,6 +108,7 @@ export function FormularioFactura({
   cruzada = false,
   onGuardada,
   volverA,
+  fechaDatosSap = null,
 }: Props) {
   const router = useRouter();
   const editando = inicial !== undefined;
@@ -113,6 +118,12 @@ export function FormularioFactura({
   const [idOi, setIdOi] = useState(inicial?.id_oi ?? "");
   const [idCecoManual, setIdCecoManual] = useState(inicial?.id_ceco ?? "");
   const [fecha, setFecha] = useState(inicial?.fecha_factura ?? "");
+  const [montoTexto, setMontoTexto] = useState(
+    inicial?.monto_estimado === null || inicial?.monto_estimado === undefined
+      ? ""
+      : String(inicial.monto_estimado),
+  );
+  const [monedaElegida, setMonedaElegida] = useState(inicial?.moneda ?? "USD");
 
   // Una OI que ya no está vigente no aparece en el selector: sin esta opción
   // extra, editar la factura la dejaría sin orden sin que nadie lo pidiera.
@@ -140,6 +151,29 @@ export function FormularioFactura({
 
   // Un gasto imputado al CeCo necesita una OI (real o tag) para saber su HZ.
   const faltaOrden = idCecoEfectivo !== "" && !idOi;
+
+  // Proyección del trimestre en curso para la OI elegida. La factura que se
+  // está escribiendo suma si es USD; al editar una sin cruzar, su monto
+  // anterior ya estaba dentro del comprometido y no se cuenta dos veces.
+  const fondos = useMemo(() => {
+    if (!oiElegida || oiElegida.saldoTrimestre === null) return null;
+    const monto = Number(montoTexto);
+    const estaFactura = monedaElegida === "USD" && monto > 0 ? monto : 0;
+    const yaIncluida =
+      !cruzada &&
+      inicial?.moneda === "USD" &&
+      inicial.id_oi === oiElegida.id &&
+      inicial.monto_estimado !== null
+        ? inicial.monto_estimado
+        : 0;
+    const comprometido = oiElegida.comprometidoTrimestre;
+    return {
+      saldo: oiElegida.saldoTrimestre,
+      comprometido,
+      estaFactura,
+      proyectado: oiElegida.saldoTrimestre - comprometido + yaIncluida - estaFactura,
+    };
+  }, [oiElegida, montoTexto, monedaElegida, cruzada, inicial]);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -215,6 +249,8 @@ export function FormularioFactura({
     setIdOi("");
     setIdCecoManual("");
     setFecha("");
+    setMontoTexto("");
+    setMonedaElegida("USD");
     router.refresh();
     form.querySelector<HTMLInputElement>("#numero_factura")?.focus();
   }
@@ -396,38 +432,61 @@ export function FormularioFactura({
         </p>
       )}
 
-      {/* Fondos de la OI elegida: es el dato que hace falta antes de emitir la
-          factura, para no comprometer plata que el trimestre ya no tiene. */}
-      {oiElegida && oiElegida.saldoTrimestre !== null && (
-        <div
-          className={
-            "mt-4 rounded-md border px-4 py-3 " +
-            (oiElegida.saldoTrimestre > 0
-              ? "border-[rgba(30,138,138,0.35)] bg-[rgba(30,138,138,0.08)]"
-              : "border-[rgba(158,43,51,0.35)] bg-[rgba(158,43,51,0.07)]")
-          }
-        >
+      {/* Fondos de la OI elegida. Tres capas que no se mezclan: el saldo lo pone
+          SAP (única fuente del consumido); lo comprometido son facturas de la app
+          que SAP todavía no trajo; el proyectado es solo una estimación. Es un
+          aviso, nunca bloquea: app y SAP no están conectadas y los montos pueden
+          diferir sin que eso sea un error. */}
+      {oiElegida && fondos && (
+        <div className="mt-4 rounded-md border border-[var(--line)] bg-white px-4 py-3">
           <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">
             Fondos de {oiElegida.codigo} · {trimestreActual}
           </p>
-          <div className="mt-1 flex flex-wrap items-baseline gap-x-6 gap-y-1">
-            <p
-              className="text-2xl font-extrabold tabular-nums"
-              style={{
-                color: oiElegida.saldoTrimestre > 0 ? "var(--ok)" : "var(--bad)",
-              }}
-            >
-              {formatoMoneda.format(oiElegida.saldoTrimestre)}
-            </p>
-            <p className="text-xs text-[var(--muted)]">
-              disponible {formatoMoneda.format(oiElegida.disponibleTrimestre ?? 0)} · consumido{" "}
-              {formatoMoneda.format(oiElegida.consumidoTrimestre ?? 0)}
-            </p>
-          </div>
-          {oiElegida.saldoTrimestre <= 0 && (
-            <p className="mt-1 text-xs font-semibold text-[var(--bad)]">
-              Este trimestre ya no tiene fondos: hace falta un extra plan antes de comprometer el
-              gasto.
+          <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
+            <div>
+              <dt className="text-xs text-[var(--muted)]">Saldo según SAP</dt>
+              <dd className="font-bold tabular-nums text-[var(--ink)]">
+                {formatoMoneda.format(fondos.saldo)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-[var(--muted)]">Comprometido (app)</dt>
+              <dd className="tabular-nums text-[var(--ink)]">
+                {formatoMoneda.format(fondos.comprometido)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-[var(--muted)]">
+                Saldo proyectado{fondos.estaFactura > 0 ? " con esta factura" : ""}
+              </dt>
+              <dd
+                className={
+                  "font-bold tabular-nums " +
+                  (fondos.proyectado < 0 ? "text-amber-700" : "text-[var(--ink)]")
+                }
+              >
+                {formatoMoneda.format(fondos.proyectado)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-[var(--muted)]">Consumido (SAP)</dt>
+              <dd className="tabular-nums text-[var(--ink)]">
+                {formatoMoneda.format(oiElegida.consumidoTrimestre ?? 0)}
+              </dd>
+            </div>
+          </dl>
+          <p className="mt-2 text-xs text-[var(--muted)]">
+            {fechaDatosSap
+              ? `Datos de SAP al ${new Date(fechaDatosSap).toLocaleDateString("es-VE")}. `
+              : ""}
+            El comprometido son facturas registradas que SAP todavía no trajo; no se descuenta del
+            saldo y desaparece cuando la factura cruza.
+          </p>
+          {fondos.proyectado < 0 && (
+            <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Con lo comprometido, el saldo proyectado quedaría en{" "}
+              {formatoMoneda.format(fondos.proyectado)}. Es una estimación: revisa si hace falta un
+              extra plan. Puedes registrar la factura igual.
             </p>
           )}
         </div>
@@ -485,12 +544,14 @@ export function FormularioFactura({
               name="monto_estimado"
               type="number"
               step="0.01"
-              defaultValue={inicial?.monto_estimado ?? ""}
+              value={montoTexto}
+              onChange={(e) => setMontoTexto(e.target.value)}
               className={CONTROL}
             />
             <select
               name="moneda"
-              defaultValue={inicial?.moneda ?? "USD"}
+              value={monedaElegida}
+              onChange={(e) => setMonedaElegida(e.target.value)}
               aria-label="Moneda"
               className={`${CONTROL} w-24`}
             >

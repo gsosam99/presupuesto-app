@@ -22,6 +22,7 @@ export interface OpcionesEdicion {
   encargados: OpcionSelect[];
   sugerencias: Sugerencias;
   trimestreActual: string;
+  fechaDatosSap: string | null;
 }
 
 interface Props {
@@ -578,6 +579,7 @@ export function TablaFacturas({ filas, edicion, estadoInicial = "todas" }: Props
               encargados={edicion.encargados}
               sugerencias={edicion.sugerencias}
               trimestreActual={edicion.trimestreActual}
+              fechaDatosSap={edicion.fechaDatosSap}
               cruzada={editando.conciliada}
               inicial={{
                 id: editando.id_factura_preregistrada,
