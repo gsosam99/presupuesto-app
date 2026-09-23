@@ -1,227 +1,82 @@
-import { CargaMasivaFacturas } from "@/components/facturas/CargaMasivaFacturas";
 import {
-  FormularioFactura,
-  type OpcionCeco,
-  type OpcionOi,
-  type Sugerencias,
-} from "@/components/facturas/FormularioFactura";
-import { obtenerRol } from "@/lib/auth";
-import { etiquetaTrimestre, trimestreActual } from "@/lib/fiscal";
+  TablaFacturas,
+  type FiltroEstado,
+  type OpcionesEdicion,
+} from "@/components/facturas/TablaFacturas";
+import { PestanasNav } from "@/components/ui/PestanasNav";
+import { requireRol } from "@/lib/auth";
+import { obtenerFacturasDelFy } from "@/lib/facturas/consultas";
+import { obtenerOpcionesFormulario } from "@/lib/facturas/opciones";
+import { etiquetaTrimestre, fyEtiqueta, trimestreActual } from "@/lib/fiscal";
 import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
-import { moneda } from "@/lib/format";
 import { tienePermiso } from "@/lib/permisos";
-import { obtenerDisponibilidad } from "@/lib/presupuesto/disponibilidad";
-import { obtenerOrdenesInternasActivas } from "@/lib/presupuesto/ordenesInternas";
-import { etiquetaVigencia, vigenteEnFy } from "@/lib/presupuesto/vigencia";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Facturas — IENN Gastos App" };
 export const dynamic = "force-dynamic";
 
-interface FilaConciliacion {
-  id_factura_preregistrada: string;
-  numero_factura: string;
-  proveedor_codigo: string | null;
-  fecha_factura: string | null;
-  monto_estimado: number | null;
-  moneda: string;
-  posiciones_sap: number;
-  monto_real_sap: number;
-  desvio_usd: number | null;
-  conciliada: boolean;
-}
+const ESTADOS: readonly FiltroEstado[] = ["todas", "cruzadas", "sin_cruzar"];
 
-export default async function FacturasPage() {
+export default async function FacturasPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ estado?: string }>;
+}) {
+  const { rol } = await requireRol();
+  const puedeEditar = tienePermiso(rol, "facturas:editar");
+  const { estado } = await searchParams;
+
   const supabase = await createSupabaseServerClient();
-  const puedeEditar = tienePermiso(await obtenerRol(), "facturas:editar");
-
   const fy = await obtenerFySeleccionado();
-  const tActual = trimestreActual();
 
-  // Fondos del trimestre en curso por OI: se muestran al elegir la orden, que
-  // es el momento en que hace falta saber si alcanza.
-  const disponibilidad = await obtenerDisponibilidad(supabase, fy).catch(() => []);
-  const fondosPorOi = new Map(
-    disponibilidad
-      .filter((d) => d.trimestre === tActual && d.id_oi)
-      .map((d) => [
-        d.id_oi as string,
-        { saldo: d.saldo, disponible: d.disponible, consumido: d.consumido },
-      ]),
-  );
-
-  const [ois, hzs, cecosRes, tax, conciliacion, equipo] = await Promise.all([
-    obtenerOrdenesInternasActivas(supabase),
-    supabase.from("hunting_zones").select("id, nombre").eq("activo", true).order("orden_display"),
-    supabase.from("cecos").select("id, codigo_sap, nombre").eq("activo", true).order("codigo_sap"),
-    supabase.from("v_valores_taxonomia").select("campo, valor").order("usos", { ascending: false }),
-    supabase
-      .from("v_conciliacion_facturas")
-      .select(
-        "id_factura_preregistrada, numero_factura, proveedor_codigo, fecha_factura, monto_estimado, moneda, posiciones_sap, monto_real_sap, desvio_usd, conciliada",
-      )
-      .order("fecha_factura", { ascending: false, nullsFirst: false })
-      .limit(50),
-    supabase.from("miembros_equipo").select("id, nombre").eq("activo", true).order("nombre"),
+  const [facturas, opciones] = await Promise.all([
+    obtenerFacturasDelFy(supabase, fy),
+    // Los catálogos del formulario solo hacen falta si se puede editar.
+    puedeEditar ? obtenerOpcionesFormulario(supabase, fy) : Promise.resolve(null),
   ]);
 
-  const hzPorId = new Map((hzs.data ?? []).map((h) => [h.id as string, h.nombre as string]));
+  const edicion: OpcionesEdicion | null = opciones
+    ? { ...opciones, trimestreActual: etiquetaTrimestre(trimestreActual()) }
+    : null;
 
-  // Las órdenes reales se filtran por vigencia del año fiscal en curso; las
-  // etiquetas son transversales y siempre están disponibles.
-  const ordenesInternas: OpcionOi[] = ois.data
-    .filter((o) => o.tipo === "tag" || vigenteEnFy(o, fy))
-    .map((o) => {
-      const fondos = fondosPorOi.get(o.id);
-      return {
-        id: o.id,
-        codigo: o.codigo_oi,
-        nombre: o.nombre,
-        tipo: o.tipo,
-        idCeco: o.id_ceco,
-        idHuntingZone: o.id_hunting_zone,
-        huntingZone: o.id_hunting_zone ? (hzPorId.get(o.id_hunting_zone) ?? null) : null,
-        saldoTrimestre: fondos?.saldo ?? null,
-        disponibleTrimestre: fondos?.disponible ?? null,
-        consumidoTrimestre: fondos?.consumido ?? null,
-        vigencia: o.tipo === "tag" ? null : etiquetaVigencia(o),
-      };
-    });
-
-  const cecos: OpcionCeco[] = (cecosRes.data ?? []).map((c) => ({
-    id: c.id as string,
-    codigo: c.codigo_sap as string,
-    nombre: c.nombre as string,
-  }));
-
-  const valores = (tax.data ?? []) as unknown as Array<{ campo: string; valor: string }>;
-  const sugerencias: Sugerencias = {
-    fase: valores.filter((v) => v.campo === "fase").map((v) => v.valor),
-    motivo: valores.filter((v) => v.campo === "motivo").map((v) => v.valor),
-    detalle: valores.filter((v) => v.campo === "detalle").map((v) => v.valor),
-  };
-
-  const filas = (conciliacion.data ?? []) as unknown as FilaConciliacion[];
-
-  const errorCarga =
-    ois.error ??
-    hzs.error ??
-    cecosRes.error ??
-    tax.error ??
-    conciliacion.error ??
-    equipo.error ??
-    null;
+  const errorCarga = facturas.error ?? opciones?.error ?? null;
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-6 py-10">
+    <main className="mx-auto w-full max-w-[1400px] px-5 py-8">
       <header>
-        <h1 className="text-2xl font-semibold text-slate-900">Pre-registro de facturas</h1>
-        <p className="mt-2 max-w-3xl text-sm text-slate-600">
-          Registra cada factura a medida que llega a finanzas. Cuando cargues el reporte mensual de
-          SAP, el cruce por número de factura le aplica al gasto la Orden Interna y la taxonomía que
-          definiste acá, sin pasar por el triaje. Una misma factura puede cruzar con varias
-          posiciones de SAP.
+        <p className="ui-eyebrow">Gastos · FY {fyEtiqueta(fy)}</p>
+        <h1 className="ui-title">Facturas pre-registradas</h1>
+        <p className="ui-lead">
+          Cada factura se registra a medida que llega a finanzas. Cuando se carga el reporte de SAP,
+          el cruce por número de factura le aplica al gasto la Orden Interna, la taxonomía y el
+          encargado definidos acá.
         </p>
       </header>
 
+      {puedeEditar && (
+        <PestanasNav
+          etiqueta="Facturas"
+          className="mt-6"
+          activa="/facturas"
+          pestanas={[
+            { href: "/facturas", etiqueta: "Facturas registradas" },
+            { href: "/facturas/nueva", etiqueta: "Registrar facturas" },
+          ]}
+        />
+      )}
+
       {errorCarga && (
         <p className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
-          No se pudo cargar toda la información: {errorCarga.message}
+          No se pudo cargar toda la información: {errorCarga}
         </p>
       )}
 
-      {puedeEditar && (
-        <>
-          <section className="mt-8">
-            <FormularioFactura
-              ordenesInternas={ordenesInternas}
-              cecos={cecos}
-              encargados={(equipo.data ?? []).map((m) => ({ id: m.id, etiqueta: m.nombre }))}
-              sugerencias={sugerencias}
-              trimestreActual={etiquetaTrimestre(tActual)}
-            />
-          </section>
-
-          <section className="mt-6">
-            <CargaMasivaFacturas />
-          </section>
-        </>
-      )}
-
-      <section className="mt-12">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Facturas registradas
-        </h2>
-
-        {filas.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-500">Todavía no hay facturas pre-registradas.</p>
-        ) : (
-          <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200 bg-white">
-            <table className="w-full min-w-[52rem] text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-                  <th className="px-4 py-2 font-medium">Factura</th>
-                  <th className="px-4 py-2 font-medium">Cta. proveedor</th>
-                  <th className="px-4 py-2 font-medium">Fecha</th>
-                  <th className="px-4 py-2 text-right font-medium">Monto declarado</th>
-                  <th className="px-4 py-2 text-right font-medium">Posiciones SAP</th>
-                  <th className="px-4 py-2 text-right font-medium">Real SAP</th>
-                  <th className="px-4 py-2 text-right font-medium">Desvío</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filas.map((f) => (
-                  <tr key={f.id_factura_preregistrada}>
-                    <td className="px-4 py-2 font-mono text-slate-900">
-                      {f.numero_factura}
-                      {!f.conciliada && (
-                        <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 font-sans text-xs text-slate-600">
-                          sin cruzar
-                        </span>
-                      )}
-                    </td>
-                    <td className="max-w-[14rem] truncate px-4 py-2 text-slate-600">
-                      {f.proveedor_codigo ?? "—"}
-                    </td>
-                    <td className="px-4 py-2 text-slate-600">{f.fecha_factura ?? "—"}</td>
-                    <td className="px-4 py-2 text-right tabular-nums text-slate-600">
-                      {f.monto_estimado === null
-                        ? "—"
-                        : `${moneda.format(f.monto_estimado)} ${f.moneda}`}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-slate-600">
-                      {f.posiciones_sap}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-slate-900">
-                      {moneda.format(f.monto_real_sap)}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums">
-                      {f.desvio_usd === null ? (
-                        <span className="text-slate-400">—</span>
-                      ) : (
-                        <span
-                          className={
-                            Math.abs(f.desvio_usd) < 0.01
-                              ? "text-slate-500"
-                              : "font-medium text-amber-700"
-                          }
-                        >
-                          {moneda.format(f.desvio_usd)}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <p className="mt-3 text-xs text-slate-500">
-          El desvío solo se calcula cuando el monto declarado ya estaba en USD. Si lo cargaste en Bs
-          no se compara, porque SAP convierte a la tasa BCV del día de la factura y nunca daría
-          exacto.
-        </p>
+      <section className="mt-6">
+        <TablaFacturas
+          filas={facturas.data}
+          edicion={edicion}
+          estadoInicial={ESTADOS.find((e) => e === estado) ?? "todas"}
+        />
       </section>
     </main>
   );

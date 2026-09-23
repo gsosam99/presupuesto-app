@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { CampoSugerido } from "@/components/ui/CampoSugerido";
 import { AYUDA, CONTROL, ETIQUETA } from "@/components/ui/estilos";
+import { etiquetaTrimestre, trimestreDeMes } from "@/lib/fiscal";
 import { moneda as formatoMoneda } from "@/lib/format";
 
 export interface OpcionOi {
@@ -44,6 +45,27 @@ export interface OpcionCeco {
   nombre: string;
 }
 
+/** Valores de una factura existente, para el modo edición. */
+export interface ValorFactura {
+  id: string;
+  numero_factura: string;
+  numero_orden: string | null;
+  id_encargado: string | null;
+  proveedor_codigo: string | null;
+  texto_referencia: string | null;
+  fecha_factura: string | null;
+  id_oi: string | null;
+  /** Código de la OI, por si ya no está entre las vigentes del selector. */
+  codigo_oi: string | null;
+  id_ceco: string | null;
+  fase: string | null;
+  motivo: string | null;
+  detalle: string | null;
+  monto_estimado: number | null;
+  moneda: string;
+  nota: string | null;
+}
+
 interface Props {
   ordenesInternas: OpcionOi[];
   cecos: OpcionCeco[];
@@ -52,6 +74,24 @@ interface Props {
   sugerencias: Sugerencias;
   /** Etiqueta del trimestre en curso, p. ej. "T4 · Jul–Sep". */
   trimestreActual: string;
+  /** Sin valor = alta. Con valor = edición de esa factura. */
+  inicial?: ValorFactura;
+  /**
+   * La factura ya cruzó con SAP: número y cuenta del proveedor son la llave
+   * del cruce y quedan bloqueados (hay que deshacer el cruce para cambiarlos).
+   */
+  cruzada?: boolean;
+  /** Se llama tras guardar con éxito (el modal de edición se cierra con esto). */
+  onGuardada?: (mensaje: string) => void;
+  /** Destino del botón "Registrar" (el de "Registrar y cargar otra" se queda). */
+  volverA?: string;
+}
+
+/** Trimestre fiscal de una fecha ISO, o null. */
+function trimestreDeFecha(fecha: string | null): number | null {
+  if (!fecha) return null;
+  const mes = Number(fecha.slice(5, 7));
+  return mes >= 1 && mes <= 12 ? trimestreDeMes(mes) : null;
 }
 
 export function FormularioFactura({
@@ -60,13 +100,32 @@ export function FormularioFactura({
   encargados,
   sugerencias,
   trimestreActual,
+  inicial,
+  cruzada = false,
+  onGuardada,
+  volverA,
 }: Props) {
   const router = useRouter();
+  const editando = inicial !== undefined;
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
-  const [idOi, setIdOi] = useState("");
-  const [idCecoManual, setIdCecoManual] = useState("");
+  const [idOi, setIdOi] = useState(inicial?.id_oi ?? "");
+  const [idCecoManual, setIdCecoManual] = useState(inicial?.id_ceco ?? "");
+  const [fecha, setFecha] = useState(inicial?.fecha_factura ?? "");
+
+  // Una OI que ya no está vigente no aparece en el selector: sin esta opción
+  // extra, editar la factura la dejaría sin orden sin que nadie lo pidiera.
+  const oiFueraDeLista =
+    inicial?.id_oi && !ordenesInternas.some((o) => o.id === inicial.id_oi)
+      ? { id: inicial.id_oi, codigo: inicial.codigo_oi ?? "OI no vigente" }
+      : null;
+
+  // Mover la fecha de una factura cruzada mueve su consumo de trimestre
+  // (v_gastos_periodo usa la fecha de la factura como fecha efectiva).
+  const tAntes = trimestreDeFecha(inicial?.fecha_factura ?? null);
+  const tDespues = trimestreDeFecha(fecha || null);
+  const cambiaTrimestre = cruzada && tAntes !== null && tDespues !== null && tAntes !== tDespues;
 
   const oiElegida = useMemo(
     () => ordenesInternas.find((o) => o.id === idOi) ?? null,
@@ -86,6 +145,7 @@ export function FormularioFactura({
     e.preventDefault();
     const form = e.currentTarget;
     const datos = new FormData(form);
+    const otra = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "otra";
 
     setEnviando(true);
     setError(null);
@@ -93,14 +153,15 @@ export function FormularioFactura({
 
     const montoCrudo = String(datos.get("monto_estimado") ?? "").trim();
 
-    const res = await fetch("/api/facturas", {
-      method: "POST",
+    const res = await fetch(editando ? `/api/facturas/${inicial.id}` : "/api/facturas", {
+      method: editando ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        numero_factura: datos.get("numero_factura"),
+        // Los campos bloqueados no viajan en el FormData: se reenvía el valor actual.
+        numero_factura: cruzada ? inicial?.numero_factura : datos.get("numero_factura"),
         numero_orden: datos.get("numero_orden"),
         id_encargado: datos.get("id_encargado") || null,
-        proveedor_codigo: datos.get("proveedor_codigo"),
+        proveedor_codigo: cruzada ? inicial?.proveedor_codigo : datos.get("proveedor_codigo"),
         texto_referencia: datos.get("texto_referencia"),
         fecha_factura: datos.get("fecha_factura") || null,
         id_oi: idOi || null,
@@ -119,6 +180,7 @@ export function FormularioFactura({
     const json = (await res.json()) as {
       error?: string;
       factura?: { numero_factura: string };
+      resultado?: { posiciones: number; conservadas: number };
     };
     setEnviando(false);
 
@@ -127,11 +189,34 @@ export function FormularioFactura({
       return;
     }
 
-    setOk(`Factura ${json.factura?.numero_factura} registrada.`);
+    if (editando) {
+      const r = json.resultado;
+      let mensaje = `Factura ${inicial.numero_factura} actualizada.`;
+      if (r && r.posiciones > 0) {
+        mensaje += ` ${r.posiciones - r.conservadas} de ${r.posiciones} posiciones SAP siguieron el cambio`;
+        mensaje +=
+          r.conservadas > 0
+            ? `; ${r.conservadas} conservaron la clasificación que se les corrigió en el triaje.`
+            : ".";
+      }
+      router.refresh();
+      onGuardada?.(mensaje);
+      return;
+    }
+
+    if (!otra && volverA) {
+      router.push(volverA);
+      router.refresh();
+      return;
+    }
+
+    setOk(`Factura ${json.factura?.numero_factura} registrada. Puedes cargar la siguiente.`);
     form.reset();
     setIdOi("");
     setIdCecoManual("");
+    setFecha("");
     router.refresh();
+    form.querySelector<HTMLInputElement>("#numero_factura")?.focus();
   }
 
   return (
@@ -142,14 +227,27 @@ export function FormularioFactura({
           <label htmlFor="numero_factura" className={ETIQUETA}>
             Número de factura *
           </label>
-          <input id="numero_factura" name="numero_factura" required className={`mt-1 ${CONTROL}`} />
+          <input
+            id="numero_factura"
+            name="numero_factura"
+            required
+            disabled={cruzada}
+            defaultValue={inicial?.numero_factura}
+            className={`mt-1 ${CONTROL} disabled:bg-slate-100 disabled:text-slate-600`}
+          />
+          {cruzada && <p className={AYUDA}>Ya cruzó con SAP: para cambiarlo, deshaz el cruce.</p>}
         </div>
 
         <div>
           <label htmlFor="numero_orden" className={ETIQUETA}>
             Número de orden
           </label>
-          <input id="numero_orden" name="numero_orden" className={`mt-1 ${CONTROL}`} />
+          <input
+            id="numero_orden"
+            name="numero_orden"
+            defaultValue={inicial?.numero_orden ?? ""}
+            className={`mt-1 ${CONTROL}`}
+          />
           <p className={AYUDA}>El que figura en la factura. No es la Orden Interna.</p>
         </div>
 
@@ -157,7 +255,13 @@ export function FormularioFactura({
           <label htmlFor="proveedor_codigo" className={ETIQUETA}>
             N.º de cuenta proveedor o acreedor
           </label>
-          <input id="proveedor_codigo" name="proveedor_codigo" className={`mt-1 ${CONTROL}`} />
+          <input
+            id="proveedor_codigo"
+            name="proveedor_codigo"
+            disabled={cruzada}
+            defaultValue={inicial?.proveedor_codigo ?? ""}
+            className={`mt-1 ${CONTROL} disabled:bg-slate-100 disabled:text-slate-600`}
+          />
         </div>
 
         <div>
@@ -168,15 +272,28 @@ export function FormularioFactura({
             id="fecha_factura"
             name="fecha_factura"
             type="date"
+            value={fecha}
+            onChange={(e) => setFecha(e.target.value)}
             className={`mt-1 ${CONTROL}`}
           />
+          {cambiaTrimestre && (
+            <p className="mt-1 text-xs font-medium text-amber-800">
+              El consumo de esta factura pasa de {etiquetaTrimestre(tAntes)} a{" "}
+              {etiquetaTrimestre(tDespues)}.
+            </p>
+          )}
         </div>
 
         <div>
           <label htmlFor="id_encargado" className={ETIQUETA}>
             Encargado
           </label>
-          <select id="id_encargado" name="id_encargado" defaultValue="" className={`mt-1 ${CONTROL}`}>
+          <select
+            id="id_encargado"
+            name="id_encargado"
+            defaultValue={inicial?.id_encargado ?? ""}
+            className={`mt-1 ${CONTROL}`}
+          >
             <option value="">— sin asignar —</option>
             {encargados.map((m) => (
               <option key={m.id} value={m.id}>
@@ -191,7 +308,12 @@ export function FormularioFactura({
           <label htmlFor="texto_referencia" className={ETIQUETA}>
             Texto de referencia
           </label>
-          <input id="texto_referencia" name="texto_referencia" className={`mt-1 ${CONTROL}`} />
+          <input
+            id="texto_referencia"
+            name="texto_referencia"
+            defaultValue={inicial?.texto_referencia ?? ""}
+            className={`mt-1 ${CONTROL}`}
+          />
         </div>
       </div>
 
@@ -234,6 +356,9 @@ export function FormularioFactura({
             className={`mt-1 ${CONTROL}`}
           >
             <option value="">— sin definir —</option>
+            {oiFueraDeLista && (
+              <option value={oiFueraDeLista.id}>{oiFueraDeLista.codigo} (no vigente)</option>
+            )}
             {ordenesInternas.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.tipo === "tag" ? "🏷 " : ""}
@@ -244,8 +369,8 @@ export function FormularioFactura({
             ))}
           </select>
           <p className={AYUDA}>
-            La orden define la Hunting Zone. Las etiquetas sirven para los gastos
-            imputados directo al CeCo.
+            La orden define la Hunting Zone. Las etiquetas sirven para los gastos imputados directo
+            al CeCo.
           </p>
         </div>
 
@@ -257,11 +382,7 @@ export function FormularioFactura({
           <input
             id="id_hunting_zone"
             disabled
-            value={
-              oiElegida
-                ? (oiElegida.huntingZone ?? "La OI no tiene proyecto asociado")
-                : ""
-            }
+            value={oiElegida ? (oiElegida.huntingZone ?? "La OI no tiene proyecto asociado") : ""}
             className={`mt-1 ${CONTROL} disabled:bg-slate-100 disabled:text-slate-600`}
           />
           <p className={AYUDA}>Se completa sola con la Orden Interna.</p>
@@ -270,9 +391,8 @@ export function FormularioFactura({
 
       {faltaOrden && (
         <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Elegiste un Centro de Costo pero no una Orden Interna. Agrega la orden real
-          vigente o una etiqueta (#CAM) para que el gasto sepa a qué Hunting Zone
-          pertenece.
+          Elegiste un Centro de Costo pero no una Orden Interna. Agrega la orden real vigente o una
+          etiqueta (#CAM) para que el gasto sepa a qué Hunting Zone pertenece.
         </p>
       )}
 
@@ -294,21 +414,20 @@ export function FormularioFactura({
             <p
               className="text-2xl font-extrabold tabular-nums"
               style={{
-                color:
-                  oiElegida.saldoTrimestre > 0 ? "var(--ok)" : "var(--bad)",
+                color: oiElegida.saldoTrimestre > 0 ? "var(--ok)" : "var(--bad)",
               }}
             >
               {formatoMoneda.format(oiElegida.saldoTrimestre)}
             </p>
             <p className="text-xs text-[var(--muted)]">
-              disponible {formatoMoneda.format(oiElegida.disponibleTrimestre ?? 0)} ·
-              consumido {formatoMoneda.format(oiElegida.consumidoTrimestre ?? 0)}
+              disponible {formatoMoneda.format(oiElegida.disponibleTrimestre ?? 0)} · consumido{" "}
+              {formatoMoneda.format(oiElegida.consumidoTrimestre ?? 0)}
             </p>
           </div>
           {oiElegida.saldoTrimestre <= 0 && (
             <p className="mt-1 text-xs font-semibold text-[var(--bad)]">
-              Este trimestre ya no tiene fondos: hace falta un extra plan antes de
-              comprometer el gasto.
+              Este trimestre ya no tiene fondos: hace falta un extra plan antes de comprometer el
+              gasto.
             </p>
           )}
         </div>
@@ -323,6 +442,7 @@ export function FormularioFactura({
           <CampoSugerido
             id="fase"
             name="fase"
+            defaultValue={inicial?.fase ?? ""}
             sugerencias={sugerencias.fase}
             className={`mt-1 ${CONTROL}`}
           />
@@ -334,6 +454,7 @@ export function FormularioFactura({
           <CampoSugerido
             id="motivo"
             name="motivo"
+            defaultValue={inicial?.motivo ?? ""}
             sugerencias={sugerencias.motivo}
             className={`mt-1 ${CONTROL}`}
           />
@@ -345,6 +466,7 @@ export function FormularioFactura({
           <CampoSugerido
             id="detalle"
             name="detalle"
+            defaultValue={inicial?.detalle ?? ""}
             sugerencias={sugerencias.detalle}
             className={`mt-1 ${CONTROL}`}
           />
@@ -363,11 +485,12 @@ export function FormularioFactura({
               name="monto_estimado"
               type="number"
               step="0.01"
+              defaultValue={inicial?.monto_estimado ?? ""}
               className={CONTROL}
             />
             <select
               name="moneda"
-              defaultValue="USD"
+              defaultValue={inicial?.moneda ?? "USD"}
               aria-label="Moneda"
               className={`${CONTROL} w-24`}
             >
@@ -375,14 +498,21 @@ export function FormularioFactura({
               <option value="VES">Bs</option>
             </select>
           </div>
-          <p className={AYUDA}>Solo informativo: no se usa para cruzar, únicamente para el desvío.</p>
+          <p className={AYUDA}>
+            Solo informativo: no se usa para cruzar, únicamente para el desvío.
+          </p>
         </div>
 
         <div className="sm:col-span-2">
           <label htmlFor="nota" className={ETIQUETA}>
             Nota
           </label>
-          <input id="nota" name="nota" className={`mt-1 ${CONTROL}`} />
+          <input
+            id="nota"
+            name="nota"
+            defaultValue={inicial?.nota ?? ""}
+            className={`mt-1 ${CONTROL}`}
+          />
         </div>
       </div>
 
@@ -395,10 +525,20 @@ export function FormularioFactura({
         <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{ok}</p>
       )}
 
-      <div className="mt-4">
-        <Button type="submit" disabled={enviando || faltaOrden}>
-          {enviando ? "Guardando…" : "Registrar factura"}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button type="submit" value="registrar" disabled={enviando || faltaOrden}>
+          {enviando ? "Guardando…" : editando ? "Guardar cambios" : "Registrar factura"}
         </Button>
+        {!editando && volverA && (
+          <Button
+            type="submit"
+            value="otra"
+            variante="secundario"
+            disabled={enviando || faltaOrden}
+          >
+            Registrar y cargar otra
+          </Button>
+        )}
       </div>
     </form>
   );

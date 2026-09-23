@@ -32,9 +32,9 @@ export default async function SinAccesoPage({
         ) : (
           <>
             Iniciaste sesión como{" "}
-            <span className="font-medium text-slate-900">{usuario.email}</span>, pero ese
-            correo no tiene un rol asignado en la app. Pídele a un administrador que te
-            agregue en Configuración → Equipo.
+            <span className="font-medium text-slate-900">{usuario.email}</span>, pero ese correo no
+            tiene un rol asignado en la app. Pídele a un administrador que te agregue en
+            Configuración → Equipo.
           </>
         )}
       </p>

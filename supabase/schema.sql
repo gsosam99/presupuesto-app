@@ -1333,3 +1333,207 @@ alter view public.v_gastos_cruce set (security_invoker = on);
 insert into public.miembros_equipo (nombre, correo, rol)
 values ('Guillermo Sosa', 'gsosam99@gmail.com', 'admin')
 on conflict (correo) do nothing;
+
+-- 15.1 Edición de facturas pre-registradas, crucen o no ---------------------
+-- La clasificación de un gasto cruzado es una COPIA de la de su factura. Si la
+-- factura se edita después del cruce, sus posiciones SAP tienen que seguirla,
+-- pero sin pisar lo que alguien corrigió a mano en el triaje. Regla por campo:
+-- el gasto se actualiza SOLO si todavía tiene el valor que heredó (= el valor
+-- anterior de la factura). Todo en una transacción, con la factura bloqueada.
+--
+-- Número de factura y cuenta del proveedor son la LLAVE del cruce: con gastos
+-- vinculados no se pueden cambiar (primero hay que deshacer el cruce).
+--
+-- La API resuelve antes id_hunting_zone e id_ceco a partir de la OI (misma
+-- regla que el alta), así que acá llegan ya resueltos en p_cambios.
+create or replace function public.actualizar_factura_preregistrada(
+  p_id      uuid,
+  p_cambios jsonb
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  v_ant        public.facturas_preregistradas%rowtype;
+  v_nue        public.facturas_preregistradas%rowtype;
+  v_cruzada    boolean;
+  v_oi_tipo    public.tipo_orden_interna;
+  v_oi_ceco    uuid;
+  v_posiciones integer := 0;
+  v_conservadas integer := 0;
+begin
+  select * into v_ant
+  from public.facturas_preregistradas
+  where id = p_id and activo
+  for update;
+
+  if not found then
+    raise exception 'La factura no existe' using errcode = 'no_data_found';
+  end if;
+
+  v_cruzada := exists (
+    select 1 from public.gastos where id_factura_preregistrada = p_id
+  );
+
+  v_nue := v_ant;
+
+  if p_cambios ? 'numero_factura' then
+    v_nue.numero_factura := btrim(p_cambios ->> 'numero_factura');
+  end if;
+  if p_cambios ? 'proveedor_codigo' then
+    v_nue.proveedor_codigo := nullif(btrim(p_cambios ->> 'proveedor_codigo'), '');
+  end if;
+
+  if v_cruzada and (
+       v_nue.numero_factura   is distinct from v_ant.numero_factura
+    or v_nue.proveedor_codigo is distinct from v_ant.proveedor_codigo
+  ) then
+    raise exception 'La factura ya cruzó con SAP: el número y la cuenta del proveedor no se pueden cambiar sin deshacer el cruce.'
+      using errcode = 'check_violation';
+  end if;
+
+  if p_cambios ? 'numero_orden'     then v_nue.numero_orden     := nullif(btrim(p_cambios ->> 'numero_orden'), ''); end if;
+  if p_cambios ? 'texto_referencia' then v_nue.texto_referencia := nullif(btrim(p_cambios ->> 'texto_referencia'), ''); end if;
+  if p_cambios ? 'fecha_factura'    then v_nue.fecha_factura    := nullif(p_cambios ->> 'fecha_factura', '')::date; end if;
+  if p_cambios ? 'id_oi'            then v_nue.id_oi            := nullif(p_cambios ->> 'id_oi', '')::uuid; end if;
+  if p_cambios ? 'id_hunting_zone'  then v_nue.id_hunting_zone  := nullif(p_cambios ->> 'id_hunting_zone', '')::uuid; end if;
+  if p_cambios ? 'id_ceco'          then v_nue.id_ceco          := nullif(p_cambios ->> 'id_ceco', '')::uuid; end if;
+  if p_cambios ? 'id_encargado'     then v_nue.id_encargado     := nullif(p_cambios ->> 'id_encargado', '')::uuid; end if;
+  if p_cambios ? 'fase'             then v_nue.fase             := nullif(btrim(p_cambios ->> 'fase'), ''); end if;
+  if p_cambios ? 'motivo'           then v_nue.motivo           := nullif(btrim(p_cambios ->> 'motivo'), ''); end if;
+  if p_cambios ? 'detalle'          then v_nue.detalle          := nullif(btrim(p_cambios ->> 'detalle'), ''); end if;
+  if p_cambios ? 'monto_estimado'   then v_nue.monto_estimado   := nullif(p_cambios ->> 'monto_estimado', '')::numeric; end if;
+  if p_cambios ? 'moneda'           then v_nue.moneda           := coalesce(nullif(p_cambios ->> 'moneda', ''), 'USD'); end if;
+  if p_cambios ? 'nota'             then v_nue.nota             := nullif(btrim(p_cambios ->> 'nota'), ''); end if;
+
+  update public.facturas_preregistradas set
+    numero_factura   = v_nue.numero_factura,
+    proveedor_codigo = v_nue.proveedor_codigo,
+    numero_orden     = v_nue.numero_orden,
+    texto_referencia = v_nue.texto_referencia,
+    fecha_factura    = v_nue.fecha_factura,
+    id_oi            = v_nue.id_oi,
+    id_hunting_zone  = v_nue.id_hunting_zone,
+    id_ceco          = v_nue.id_ceco,
+    id_encargado     = v_nue.id_encargado,
+    fase             = v_nue.fase,
+    motivo           = v_nue.motivo,
+    detalle          = v_nue.detalle,
+    monto_estimado   = v_nue.monto_estimado,
+    moneda           = v_nue.moneda,
+    nota             = v_nue.nota
+  where id = p_id;
+
+  if not v_cruzada then
+    return jsonb_build_object('posiciones', 0, 'conservadas', 0);
+  end if;
+
+  select oi.tipo, oi.id_ceco into v_oi_tipo, v_oi_ceco
+  from public.ordenes_internas oi
+  where oi.id = v_nue.id_oi;
+
+  -- Posiciones que conservan al menos un valor corregido a mano (se informan).
+  -- La OI/HZ que vino de SAP (origen 'orden_interna') nunca la pisa la factura.
+  select
+    count(*),
+    count(*) filter (where
+         (v_nue.id_oi is distinct from v_ant.id_oi
+            and g.origen_hz <> 'orden_interna'
+            and g.id_oi is distinct from v_ant.id_oi)
+      or (v_nue.id_hunting_zone is distinct from v_ant.id_hunting_zone
+            and g.origen_hz <> 'orden_interna'
+            and (g.origen_hz <> 'prerregistro' or g.id_hunting_zone is distinct from v_ant.id_hunting_zone))
+      or (v_nue.fase is distinct from v_ant.fase and g.fase is distinct from v_ant.fase)
+      or (v_nue.motivo is distinct from v_ant.motivo and g.motivo is distinct from v_ant.motivo)
+      or (v_nue.detalle is distinct from v_ant.detalle and g.detalle is distinct from v_ant.detalle)
+      or (v_nue.id_encargado is distinct from v_ant.id_encargado
+            and g.id_encargado is distinct from v_ant.id_encargado)
+    )
+  into v_posiciones, v_conservadas
+  from public.gastos g
+  where g.id_factura_preregistrada = p_id;
+
+  update public.gastos g set
+    id_oi = case
+      when g.origen_hz <> 'orden_interna' and g.id_oi is not distinct from v_ant.id_oi
+        then v_nue.id_oi else g.id_oi end,
+    -- Una OI real arrastra su CeCo padre; un tag conserva el CeCo de SAP.
+    id_ceco = case
+      when g.origen_hz <> 'orden_interna' and g.id_oi is not distinct from v_ant.id_oi
+       and v_nue.id_oi is distinct from v_ant.id_oi
+       and v_oi_tipo = 'real' and v_oi_ceco is not null
+        then v_oi_ceco else g.id_ceco end,
+    id_hunting_zone = case
+      when g.origen_hz = 'prerregistro' and g.id_hunting_zone is not distinct from v_ant.id_hunting_zone
+        then v_nue.id_hunting_zone else g.id_hunting_zone end,
+    -- Si la factura se queda sin proyecto, el gasto vuelve al triaje: aprobado
+    -- sin Hunting Zone contaría en los KPIs sin saber de quién es.
+    origen_hz = case
+      when g.origen_hz = 'prerregistro' and v_nue.id_hunting_zone is null
+        then 'sin_asignar'::public.origen_asignacion else g.origen_hz end,
+    estado_revision = case
+      when g.origen_hz = 'prerregistro' and v_nue.id_hunting_zone is null
+       and g.estado_revision = 'aprobado'
+        then 'pendiente'::public.estado_revision else g.estado_revision end,
+    fase = case when g.fase is not distinct from v_ant.fase then v_nue.fase else g.fase end,
+    motivo = case when g.motivo is not distinct from v_ant.motivo then v_nue.motivo else g.motivo end,
+    detalle = case when g.detalle is not distinct from v_ant.detalle then v_nue.detalle else g.detalle end,
+    id_encargado = case
+      when g.id_encargado is not distinct from v_ant.id_encargado
+        then v_nue.id_encargado else g.id_encargado end
+  where g.id_factura_preregistrada = p_id;
+
+  return jsonb_build_object('posiciones', v_posiciones, 'conservadas', v_conservadas);
+end;
+$$;
+
+comment on function public.actualizar_factura_preregistrada(uuid, jsonb) is
+  'Edita una factura pre-registrada y propaga a sus gastos cruzados solo los campos que todavía tienen el valor heredado.';
+
+-- 15.2 Deshacer un cruce -----------------------------------------------------
+-- Desvincula gastos de su factura y les quita lo que heredaron de ella (lo que
+-- sigue igual al valor de la factura). La OI/HZ que vino de SAP se conserva.
+-- El gasto vuelve a 'pendiente' para que se revise en el triaje, salvo que su
+-- aprobación viniera de la OI de SAP.
+create or replace function public.deshacer_cruce(p_ids_gasto uuid[])
+returns integer
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  v_n integer;
+begin
+  update public.gastos g set
+    id_oi = case
+      when g.origen_hz <> 'orden_interna' and g.id_oi is not distinct from fp.id_oi
+        then null else g.id_oi end,
+    id_hunting_zone = case when g.origen_hz = 'prerregistro' then null else g.id_hunting_zone end,
+    origen_hz = case
+      when g.origen_hz = 'prerregistro' then 'sin_asignar'::public.origen_asignacion
+      else g.origen_hz end,
+    fase    = case when g.fase    is not distinct from fp.fase    then null else g.fase end,
+    motivo  = case when g.motivo  is not distinct from fp.motivo  then null else g.motivo end,
+    detalle = case when g.detalle is not distinct from fp.detalle then null else g.detalle end,
+    id_encargado = case
+      when g.id_encargado is not distinct from fp.id_encargado then null else g.id_encargado end,
+    id_factura_preregistrada = null,
+    metodo_cruce = null,
+    estado_revision = case
+      when g.estado_revision = 'excluido' or g.origen_hz = 'orden_interna' then g.estado_revision
+      else 'pendiente'::public.estado_revision end,
+    revisado_por = auth.uid(),
+    revisado_at  = now()
+  from public.facturas_preregistradas fp
+  where fp.id = g.id_factura_preregistrada
+    and g.id = any (p_ids_gasto);
+
+  get diagnostics v_n = row_count;
+  return v_n;
+end;
+$$;
+
+comment on function public.deshacer_cruce(uuid[]) is
+  'Desvincula gastos de su factura pre-registrada y limpia la clasificación que habían heredado.';

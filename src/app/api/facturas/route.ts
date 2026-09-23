@@ -1,29 +1,10 @@
 import { z } from "zod";
 
 import { requireApiPermiso } from "@/lib/auth";
-import { resolverOiPorId } from "@/lib/presupuesto/resolverOi";
+import { camposFacturaSchema, resolverDestino } from "@/lib/facturas/destino";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-
-const cuerpoSchema = z.object({
-  numero_factura: z.string().trim().min(1, "El número de factura es obligatorio"),
-  /** Número de Orden impreso en la factura. NO es la Orden Interna (id_oi). */
-  numero_orden: z.string().nullable().optional(),
-  id_encargado: z.string().uuid().nullable().optional(),
-  proveedor_codigo: z.string().nullable().optional(),
-  texto_referencia: z.string().nullable().optional(),
-  fecha_factura: z.string().nullable().optional(),
-  id_oi: z.string().nullable().optional(),
-  id_ceco: z.string().nullable().optional(),
-  id_hunting_zone: z.string().nullable().optional(),
-  fase: z.string().nullable().optional(),
-  motivo: z.string().nullable().optional(),
-  detalle: z.string().nullable().optional(),
-  monto_estimado: z.number().nullable().optional(),
-  moneda: z.enum(["USD", "VES"]).optional(),
-  nota: z.string().nullable().optional(),
-});
 
 /** Alta manual de una factura pre-registrada (uso diario de finanzas). */
 export async function POST(request: Request): Promise<Response> {
@@ -32,7 +13,7 @@ export async function POST(request: Request): Promise<Response> {
     const auth = await requireApiPermiso(supabase, "facturas:editar");
     if ("response" in auth) return auth.response;
 
-    const parsed = cuerpoSchema.safeParse(await request.json());
+    const parsed = camposFacturaSchema.safeParse(await request.json());
     if (!parsed.success) {
       return Response.json(
         { error: parsed.error.issues[0]?.message ?? "Datos inválidos" },
@@ -41,25 +22,8 @@ export async function POST(request: Request): Promise<Response> {
     }
     const cuerpo = parsed.data;
 
-    // La Hunting Zone la define siempre la Orden Interna (real o etiqueta), y
-    // el CeCo se hereda del padre cuando la orden es real.
-    let idHz = cuerpo.id_hunting_zone || null;
-    let idCeco = cuerpo.id_ceco || null;
-
-    if (cuerpo.id_oi) {
-      const { data: oi, error: errorOi } = await resolverOiPorId(supabase, cuerpo.id_oi);
-
-      if (errorOi) {
-        console.error("[POST /api/facturas]", errorOi);
-        return Response.json(
-          { error: "No se pudo resolver la Orden Interna." },
-          { status: 400 },
-        );
-      }
-
-      if (oi?.id_hunting_zone) idHz = oi.id_hunting_zone;
-      if (oi?.tipo === "real" && oi.id_ceco) idCeco = oi.id_ceco;
-    }
+    const destino = await resolverDestino(supabase, cuerpo.id_oi || null, cuerpo.id_ceco || null);
+    if ("error" in destino) return Response.json({ error: destino.error }, { status: 400 });
 
     const { data, error } = await supabase
       .from("facturas_preregistradas")
@@ -71,8 +35,8 @@ export async function POST(request: Request): Promise<Response> {
         texto_referencia: cuerpo.texto_referencia?.trim() || null,
         fecha_factura: cuerpo.fecha_factura || null,
         id_oi: cuerpo.id_oi || null,
-        id_ceco: idCeco,
-        id_hunting_zone: idHz,
+        id_ceco: destino.idCeco,
+        id_hunting_zone: destino.idHz,
         fase: cuerpo.fase?.trim() || null,
         motivo: cuerpo.motivo?.trim() || null,
         detalle: cuerpo.detalle?.trim() || null,
@@ -92,6 +56,65 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ factura: data }, { status: 201 });
   } catch (error) {
     console.error("[POST /api/facturas]", error);
+    return Response.json({ error: "Error interno" }, { status: 500 });
+  }
+}
+
+const borradoSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1, "No se indicó ninguna factura"),
+});
+
+/**
+ * Borra facturas pre-registradas que todavía no cruzaron con SAP. Las
+ * cruzadas se saltean (y se informan): para borrarlas primero hay que
+ * deshacer el cruce, así ningún gasto queda apuntando a nada sin que nadie
+ * lo haya decidido.
+ */
+export async function DELETE(request: Request): Promise<Response> {
+  try {
+    const supabase = await createSupabaseServerClient();
+    const auth = await requireApiPermiso(supabase, "facturas:editar");
+    if ("response" in auth) return auth.response;
+
+    const parsed = borradoSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return Response.json(
+        { error: parsed.error.issues[0]?.message ?? "Datos inválidos" },
+        { status: 400 },
+      );
+    }
+    const { ids } = parsed.data;
+
+    const { data: cruzadas, error: errorCruce } = await supabase
+      .from("gastos")
+      .select("id_factura_preregistrada")
+      .in("id_factura_preregistrada", ids);
+
+    if (errorCruce) {
+      console.error("[DELETE /api/facturas]", errorCruce);
+      return Response.json({ error: "No se pudo verificar el cruce." }, { status: 400 });
+    }
+
+    const conCruce = new Set((cruzadas ?? []).map((g) => g.id_factura_preregistrada as string));
+    const borrables = ids.filter((id) => !conCruce.has(id));
+
+    if (borrables.length === 0) {
+      return Response.json(
+        { error: "Las facturas elegidas ya cruzaron con SAP: deshaz el cruce antes de borrarlas." },
+        { status: 409 },
+      );
+    }
+
+    const { error } = await supabase.from("facturas_preregistradas").delete().in("id", borrables);
+
+    if (error) {
+      console.error("[DELETE /api/facturas]", error);
+      return Response.json({ error: "No se pudieron borrar las facturas." }, { status: 400 });
+    }
+
+    return Response.json({ borradas: borrables.length, omitidas: conCruce.size });
+  } catch (error) {
+    console.error("[DELETE /api/facturas]", error);
     return Response.json({ error: "Error interno" }, { status: 500 });
   }
 }

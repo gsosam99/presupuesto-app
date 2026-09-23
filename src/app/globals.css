@@ -170,8 +170,9 @@ input[type="date"] {
 
 /* Pestañas reutilizables. El dashboard tiene las suyas, pero viven bajo el
  * scope .dash (dashboard.css) y no se pueden usar fuera. El estado activo
- * cuelga de aria-selected para que sea imposible pintar una pestaña sin
- * marcarla accesible. */
+ * cuelga de aria-selected (pestañas en la misma página) o de aria-current
+ * (pestañas que navegan entre rutas, ver PestanasNav) para que sea imposible
+ * pintar una pestaña sin marcarla accesible. */
 .ui-tabs {
   display: flex;
   gap: 2px;
@@ -193,10 +194,12 @@ input[type="date"] {
 .ui-tab:hover {
   color: var(--ink);
 }
-.ui-tab[aria-selected="true"] {
+.ui-tab[aria-selected="true"],
+.ui-tab[aria-current="page"] {
   color: var(--navy);
 }
-.ui-tab[aria-selected="true"]::after {
+.ui-tab[aria-selected="true"]::after,
+.ui-tab[aria-current="page"]::after {
   content: "";
   position: absolute;
   left: 12px;
