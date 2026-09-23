@@ -50,7 +50,7 @@ export default async function FacturasPage() {
       ]),
   );
 
-  const [ois, hzs, cecosRes, tax, conciliacion] = await Promise.all([
+  const [ois, hzs, cecosRes, tax, conciliacion, equipo] = await Promise.all([
     obtenerOrdenesInternasActivas(supabase),
     supabase.from("hunting_zones").select("id, nombre").eq("activo", true).order("orden_display"),
     supabase.from("cecos").select("id, codigo_sap, nombre").eq("activo", true).order("codigo_sap"),
@@ -62,6 +62,7 @@ export default async function FacturasPage() {
       )
       .order("fecha_factura", { ascending: false, nullsFirst: false })
       .limit(50),
+    supabase.from("miembros_equipo").select("id, nombre").eq("activo", true).order("nombre"),
   ]);
 
   const hzPorId = new Map((hzs.data ?? []).map((h) => [h.id as string, h.nombre as string]));
@@ -103,7 +104,13 @@ export default async function FacturasPage() {
   const filas = (conciliacion.data ?? []) as unknown as FilaConciliacion[];
 
   const errorCarga =
-    ois.error ?? hzs.error ?? cecosRes.error ?? tax.error ?? conciliacion.error ?? null;
+    ois.error ??
+    hzs.error ??
+    cecosRes.error ??
+    tax.error ??
+    conciliacion.error ??
+    equipo.error ??
+    null;
 
   return (
     <main className="mx-auto w-full max-w-6xl px-6 py-10">
@@ -129,6 +136,7 @@ export default async function FacturasPage() {
             <FormularioFactura
               ordenesInternas={ordenesInternas}
               cecos={cecos}
+              encargados={(equipo.data ?? []).map((m) => ({ id: m.id, etiqueta: m.nombre }))}
               sugerencias={sugerencias}
               trimestreActual={etiquetaTrimestre(tActual)}
             />

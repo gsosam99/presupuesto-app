@@ -4,13 +4,18 @@
  * Formato esperado (los encabezados se matchean sin acentos ni mayúsculas,
  * y solo el número de factura es obligatorio):
  *
- *   Número de factura | Número de cuenta proveedor o acreedor | Fecha |
- *   Texto de referencia | Orden Interna | Hunting Zone |
+ *   Número de factura | Número de orden | Número de cuenta proveedor o acreedor |
+ *   Fecha | Texto de referencia | Orden Interna | Hunting Zone | Encargado |
  *   Fase | Motivo | Detalle | Monto | Moneda | Nota
  *
- * La OI y la Hunting Zone se resuelven contra las maestras por su código/nombre:
- * si no existen, la fila se rechaza con el motivo en vez de crear maestras
- * silenciosamente. Fase, Motivo y Detalle son texto libre e independientes.
+ * OJO: "Número de orden" es un dato impreso en la factura y NO la Orden
+ * Interna de SAP. Por eso el encabezado suelto "Orden" se lee como número de
+ * orden, y la OI solo se reconoce como "Orden Interna" / "OI".
+ *
+ * La OI, la Hunting Zone y el encargado (por correo o nombre) se resuelven
+ * contra las maestras: si no existen, la fila se rechaza con el motivo en vez
+ * de crear maestras silenciosamente. Fase, Motivo y Detalle son texto libre e
+ * independientes.
  */
 
 import ExcelJS from "exceljs";
@@ -23,6 +28,8 @@ type Cliente = SupabaseClient<Database>;
 
 interface RegistroFactura {
   numero_factura: string;
+  numero_orden: string | null;
+  id_encargado: string | null;
   proveedor_codigo: string | null;
   texto_referencia: string | null;
   fecha_factura: string | null;
@@ -49,6 +56,15 @@ export interface ResumenCargaFacturas {
 
 const ALIAS: Record<string, string[]> = {
   numero: ["numero de factura", "numero factura", "factura", "n factura"],
+  numeroOrden: [
+    "numero de orden",
+    "numero orden",
+    "n de orden",
+    "n.º de orden",
+    "nº de orden",
+    "orden",
+  ],
+  encargado: ["encargado", "responsable", "correo encargado", "encargado de la factura"],
   proveedorCodigo: [
     "numero de cuenta proveedor o acreedor",
     "numero de cuenta del proveedor o acreedor",
@@ -58,7 +74,7 @@ const ALIAS: Record<string, string[]> = {
   ],
   fecha: ["fecha", "fecha de la factura", "fecha factura"],
   texto: ["texto de referencia", "texto referencia", "denominacion"],
-  oi: ["orden interna", "oi", "orden"],
+  oi: ["orden interna", "oi"],
   hz: ["hunting zone", "proyecto", "hz"],
   fase: ["fase"],
   motivo: ["motivo"],
@@ -113,9 +129,10 @@ export async function importarFacturasExcel(
   }
 
   // --- Maestras para resolver los destinos ---------------------------------
-  const [ois, hzs] = await Promise.all([
+  const [ois, hzs, equipo] = await Promise.all([
     cliente.from("ordenes_internas").select("id, codigo_oi"),
     cliente.from("hunting_zones").select("id, nombre"),
+    cliente.from("miembros_equipo").select("id, nombre, correo").eq("activo", true),
   ]);
 
   const oiPorCodigo = new Map(
@@ -124,6 +141,13 @@ export async function importarFacturasExcel(
   const hzPorNombre = new Map(
     (hzs.data ?? []).map((h) => [normalizarHeader(String(h.nombre)), h.id as string]),
   );
+  // El encargado se reconoce por correo (exacto) o por nombre (sin acentos).
+  const encargadoPor = new Map<string, string>();
+  for (const m of equipo.data ?? []) {
+    encargadoPor.set(String(m.correo).toLowerCase(), m.id);
+    encargadoPor.set(normalizarHeader(String(m.nombre)), m.id);
+  }
+
   const { data: carga, error: errorCarga } = await cliente
     .from("cargas")
     .insert({
@@ -185,6 +209,22 @@ export async function importarFacturasExcel(
       }
     }
 
+    let idEncargado: string | null = null;
+    const encargado = textoCelda(valor("encargado"));
+    if (encargado !== null) {
+      idEncargado =
+        encargadoPor.get(encargado.trim().toLowerCase()) ??
+        encargadoPor.get(normalizarHeader(encargado)) ??
+        null;
+      if (idEncargado === null) {
+        rechazos.push({
+          fila: numero,
+          motivo: `El encargado "${encargado}" no está en la maestra de Equipo`,
+        });
+        return;
+      }
+    }
+
     // Taxonomía: tres campos independientes de texto libre. No se valida
     // contra un catálogo cerrado; las sugerencias de la UI evitan el tipeo.
     const fase = textoCelda(valor("fase"));
@@ -196,6 +236,8 @@ export async function importarFacturasExcel(
 
     registros.push({
       numero_factura: numeroFactura,
+      numero_orden: textoCelda(valor("numeroOrden")),
+      id_encargado: idEncargado,
       proveedor_codigo: textoCelda(valor("proveedorCodigo")),
       texto_referencia: textoCelda(valor("texto")),
       fecha_factura: fechaCelda(valor("fecha")),

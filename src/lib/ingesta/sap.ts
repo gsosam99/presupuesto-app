@@ -30,7 +30,7 @@ import {
 import { claveComparacion, normalizarNumeroFactura } from "@/lib/sap/normalizar";
 import type { FilaSap, LayoutSap, RechazoSap, ResultadoSap } from "@/lib/sap/parser";
 import type { Database } from "@/types/supabase";
-import type { EstadoRevision, OrigenAsignacion, TipoCarga } from "@/types";
+import type { EstadoRevision, MetodoCruce, OrigenAsignacion, TipoCarga } from "@/types";
 
 type Cliente = SupabaseClient<Database>;
 
@@ -116,6 +116,7 @@ export interface FacturaPreregistrada {
   proveedorCodigo: string | null;
   idOi: string | null;
   idHz: string | null;
+  idEncargado: string | null;
   fase: string | null;
   motivo: string | null;
   detalle: string | null;
@@ -156,6 +157,7 @@ export async function cargarMaestras(cliente: Cliente): Promise<Maestras> {
       proveedor_codigo: string | null;
       id_oi: string | null;
       id_hunting_zone: string | null;
+      id_encargado: string | null;
       fase: string | null;
       motivo: string | null;
       detalle: string | null;
@@ -163,7 +165,7 @@ export async function cargarMaestras(cliente: Cliente): Promise<Maestras> {
     }>(
       cliente,
       "facturas_preregistradas",
-      "id, numero_normalizado, proveedor_codigo, id_oi, id_hunting_zone, fase, motivo, detalle, activo",
+      "id, numero_normalizado, proveedor_codigo, id_oi, id_hunting_zone, id_encargado, fase, motivo, detalle, activo",
     ),
   ]);
 
@@ -176,6 +178,7 @@ export async function cargarMaestras(cliente: Cliente): Promise<Maestras> {
       proveedorCodigo: f.proveedor_codigo,
       idOi: f.id_oi,
       idHz: f.id_hunting_zone,
+      idEncargado: f.id_encargado,
       fase: f.fase,
       motivo: f.motivo,
       detalle: f.detalle,
@@ -273,6 +276,8 @@ export interface RegistroGasto {
   motivo: string | null;
   detalle: string | null;
   id_factura_preregistrada: string | null;
+  id_encargado: string | null;
+  metodo_cruce: MetodoCruce | null;
   origen_hz: OrigenAsignacion;
   estado_revision: EstadoRevision;
   id_carga: string | null;
@@ -365,6 +370,8 @@ export function clasificarFilas(
       motivo: prerregistro?.motivo ?? null,
       detalle: prerregistro?.detalle ?? null,
       id_factura_preregistrada: prerregistro?.id ?? null,
+      id_encargado: prerregistro?.idEncargado ?? null,
+      metodo_cruce: prerregistro ? ("automatico" as const) : null,
       origen_hz: origen,
       estado_revision: estado,
       id_carga: idCarga,

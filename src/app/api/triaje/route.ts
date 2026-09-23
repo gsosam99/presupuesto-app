@@ -147,7 +147,7 @@ export async function PATCH(request: Request): Promise<Response> {
     if (cuerpo.id_factura_preregistrada) {
       const { data: factura, error } = await supabase
         .from("facturas_preregistradas")
-        .select("id, id_oi, id_ceco, id_hunting_zone, fase, motivo, detalle")
+        .select("id, id_oi, id_ceco, id_hunting_zone, id_encargado, fase, motivo, detalle")
         .eq("id", cuerpo.id_factura_preregistrada)
         .maybeSingle();
 
@@ -161,6 +161,8 @@ export async function PATCH(request: Request): Promise<Response> {
       if (!factura) return Response.json({ error: "La factura no existe" }, { status: 400 });
 
       cambios.id_factura_preregistrada = factura.id as string;
+      cambios.metodo_cruce = "manual";
+      if (factura.id_encargado) cambios.id_encargado = factura.id_encargado as string;
       if (!idOi && factura.id_oi) cambios.id_oi = factura.id_oi as string;
       if (factura.id_ceco) cambios.id_ceco = factura.id_ceco as string;
       if (!idHz && factura.id_hunting_zone) {

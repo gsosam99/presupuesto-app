@@ -47,6 +47,8 @@ export interface OpcionCeco {
 interface Props {
   ordenesInternas: OpcionOi[];
   cecos: OpcionCeco[];
+  /** Miembros activos del equipo: el encargado responde por el gasto. */
+  encargados: OpcionSelect[];
   sugerencias: Sugerencias;
   /** Etiqueta del trimestre en curso, p. ej. "T4 · Jul–Sep". */
   trimestreActual: string;
@@ -55,6 +57,7 @@ interface Props {
 export function FormularioFactura({
   ordenesInternas,
   cecos,
+  encargados,
   sugerencias,
   trimestreActual,
 }: Props) {
@@ -95,6 +98,8 @@ export function FormularioFactura({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         numero_factura: datos.get("numero_factura"),
+        numero_orden: datos.get("numero_orden"),
+        id_encargado: datos.get("id_encargado") || null,
         proveedor_codigo: datos.get("proveedor_codigo"),
         texto_referencia: datos.get("texto_referencia"),
         fecha_factura: datos.get("fecha_factura") || null,
@@ -141,6 +146,14 @@ export function FormularioFactura({
         </div>
 
         <div>
+          <label htmlFor="numero_orden" className={ETIQUETA}>
+            Número de orden
+          </label>
+          <input id="numero_orden" name="numero_orden" className={`mt-1 ${CONTROL}`} />
+          <p className={AYUDA}>El que figura en la factura. No es la Orden Interna.</p>
+        </div>
+
+        <div>
           <label htmlFor="proveedor_codigo" className={ETIQUETA}>
             N.º de cuenta proveedor o acreedor
           </label>
@@ -159,7 +172,22 @@ export function FormularioFactura({
           />
         </div>
 
-        <div className="sm:col-span-2 lg:col-span-3">
+        <div>
+          <label htmlFor="id_encargado" className={ETIQUETA}>
+            Encargado
+          </label>
+          <select id="id_encargado" name="id_encargado" defaultValue="" className={`mt-1 ${CONTROL}`}>
+            <option value="">— sin asignar —</option>
+            {encargados.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.etiqueta}
+              </option>
+            ))}
+          </select>
+          <p className={AYUDA}>Responsable del gasto. Se da de alta en Configuración → Equipo.</p>
+        </div>
+
+        <div className="sm:col-span-2">
           <label htmlFor="texto_referencia" className={ETIQUETA}>
             Texto de referencia
           </label>

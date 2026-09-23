@@ -16,11 +16,13 @@ interface Resumen {
 
 const COLUMNAS = [
   "Número de factura",
+  "Número de orden",
   "Número de cuenta proveedor o acreedor",
   "Fecha",
   "Texto de referencia",
   "Orden Interna",
   "Hunting Zone",
+  "Encargado",
   "Fase",
   "Motivo",
   "Detalle",

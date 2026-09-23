@@ -8,6 +8,9 @@ export const runtime = "nodejs";
 
 const cuerpoSchema = z.object({
   numero_factura: z.string().trim().min(1, "El número de factura es obligatorio"),
+  /** Número de Orden impreso en la factura. NO es la Orden Interna (id_oi). */
+  numero_orden: z.string().nullable().optional(),
+  id_encargado: z.string().uuid().nullable().optional(),
   proveedor_codigo: z.string().nullable().optional(),
   texto_referencia: z.string().nullable().optional(),
   fecha_factura: z.string().nullable().optional(),
@@ -62,6 +65,8 @@ export async function POST(request: Request): Promise<Response> {
       .from("facturas_preregistradas")
       .insert({
         numero_factura: cuerpo.numero_factura,
+        numero_orden: cuerpo.numero_orden?.trim() || null,
+        id_encargado: cuerpo.id_encargado || null,
         proveedor_codigo: cuerpo.proveedor_codigo?.trim() || null,
         texto_referencia: cuerpo.texto_referencia?.trim() || null,
         fecha_factura: cuerpo.fecha_factura || null,
