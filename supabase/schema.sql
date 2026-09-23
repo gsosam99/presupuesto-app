@@ -1248,8 +1248,13 @@ alter table public.cargas
   add column if not exists resumen jsonb;
 create index if not exists idx_cargas_lote on public.cargas(id_lote);
 
--- Conciliación: columnas nuevas SOLO al final (42P16) -----------------------
-create or replace view public.v_conciliacion_facturas as
+-- Conciliación ---------------------------------------------------------------
+-- DROP + CREATE y no "create or replace": la vista en producción ya no tiene
+-- las mismas columnas que la sección 7.4 de este archivo (fue redefinida por
+-- fuera del repo), así que reemplazarla da 42P16. Sin CASCADE a propósito: si
+-- algo dependiera de ella, mejor que falle a que se borre en silencio.
+drop view if exists public.v_conciliacion_facturas;
+create view public.v_conciliacion_facturas as
 select
   fp.id                          as id_factura_preregistrada,
   fp.numero_factura,
