@@ -78,3 +78,16 @@ export function trimestreActual(hoy = new Date()): 1 | 2 | 3 | 4 {
 export function fyActual(hoy = new Date()): number {
   return fyDeFecha(hoy);
 }
+
+/** Primer día calendario (UTC) de un trimestre del FY. */
+export function inicioTrimestre(fy: number, trimestre: number): Date {
+  return new Date(Date.UTC(fy, MES_INICIO_FY - 1 + (trimestre - 1) * 3, 1));
+}
+
+/**
+ * Un trimestre ya empezó (está en curso o cerrado). Es la condición para pedir
+ * un arrastre: el sobrante de un trimestre futuro todavía no existe.
+ */
+export function trimestreIniciado(fy: number, trimestre: number, hoy = new Date()): boolean {
+  return inicioTrimestre(fy, trimestre).getTime() <= hoy.getTime();
+}

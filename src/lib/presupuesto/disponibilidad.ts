@@ -33,6 +33,8 @@ export async function obtenerDisponibilidad(
 export interface UnidadPresupuestaria {
   clave: string;
   idOi: string | null;
+  /** Solo en unidades presupuestadas por Centro de Costo (sin OI). */
+  idCeco: string | null;
   codigo: string;
   huntingZone: string | null;
   trimestres: DisponibilidadTrimestre[];
@@ -55,6 +57,7 @@ export function agruparPorUnidad(
     const previo = mapa.get(f.clave) ?? {
       clave: f.clave,
       idOi: f.id_oi,
+      idCeco: f.id_oi ? null : f.id_ceco,
       codigo: f.codigo_oi ?? f.codigo_ceco ?? "—",
       huntingZone: f.hunting_zone,
       trimestres: [],

@@ -39,6 +39,11 @@ interface Props {
   fy: number;
   tipoInicial: TipoSolicitud;
   oiInicial?: string;
+  /**
+   * Unidad por Centro de Costo (Hunting Zones sin OI). Si viene, la solicitud
+   * se imputa al CeCo y no se pide Orden Interna.
+   */
+  ceco?: { id: string; etiqueta: string };
   trimestreInicial?: number;
   montoInicial?: number;
 }
@@ -61,6 +66,7 @@ export function FormularioSolicitud({
   fy,
   tipoInicial,
   oiInicial,
+  ceco,
   trimestreInicial,
   montoInicial,
 }: Props) {
@@ -99,7 +105,8 @@ export function FormularioSolicitud({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         tipo,
-        id_oi: idOi || null,
+        id_oi: ceco ? null : idOi || null,
+        id_ceco: ceco?.id ?? null,
         fy,
         trimestre: tipo === "prorroga" ? trimestre : null,
         titulo,
@@ -142,7 +149,7 @@ export function FormularioSolicitud({
           {(
             [
               ["extra_plan", "Extra plan — pedir fondos adicionales"],
-              ["prorroga", "Prórroga — que no me quiten el sobrante"],
+              ["prorroga", "Arrastre (prórroga) — conservar el sobrante de un trimestre"],
             ] as const
           ).map(([valor, etiqueta]) => (
             <label
@@ -163,27 +170,41 @@ export function FormularioSolicitud({
       </fieldset>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <div>
-          <label htmlFor="id_oi" className={ETIQUETA}>
-            Orden Interna *
-          </label>
-          <select
-            id="id_oi"
-            required
-            value={idOi}
-            onChange={(e) => setIdOi(e.target.value)}
-            className={`mt-1 ${CONTROL}`}
-          >
-            <option value="">— elegir —</option>
-            {ordenesInternas.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.codigo}
-                {o.nombre ? ` — ${o.nombre}` : ""}
-                {o.vigencia ? ` (${o.vigencia})` : ""}
-              </option>
-            ))}
-          </select>
-        </div>
+        {ceco ? (
+          <div>
+            <label htmlFor="id_ceco" className={ETIQUETA}>
+              Centro de Costo
+            </label>
+            <input
+              id="id_ceco"
+              disabled
+              value={ceco.etiqueta}
+              className={`mt-1 ${CONTROL} disabled:bg-slate-100 disabled:text-slate-600`}
+            />
+          </div>
+        ) : (
+          <div>
+            <label htmlFor="id_oi" className={ETIQUETA}>
+              Orden Interna *
+            </label>
+            <select
+              id="id_oi"
+              required
+              value={idOi}
+              onChange={(e) => setIdOi(e.target.value)}
+              className={`mt-1 ${CONTROL}`}
+            >
+              <option value="">— elegir —</option>
+              {ordenesInternas.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.codigo}
+                  {o.nombre ? ` — ${o.nombre}` : ""}
+                  {o.vigencia ? ` (${o.vigencia})` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div>
           <label htmlFor="titulo" className={ETIQUETA}>
@@ -218,7 +239,8 @@ export function FormularioSolicitud({
               ))}
             </select>
             <p className={AYUDA}>
-              Aprobada, ese monto queda disponible en el trimestre siguiente.
+              El trimestre en curso (arrastre preventivo, antes del cierre) o uno ya
+              cerrado. Aprobada, ese monto queda disponible en el trimestre siguiente.
             </p>
           </div>
           <div>

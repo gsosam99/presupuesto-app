@@ -20,6 +20,7 @@ export default async function NuevaSolicitudPage({
   searchParams: Promise<{
     tipo?: string;
     oi?: string;
+    ceco?: string;
     fy?: string;
     trimestre?: string;
     monto?: string;
@@ -31,7 +32,16 @@ export default async function NuevaSolicitudPage({
   const fy = Number(params.fy) || fyActual();
 
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await obtenerOrdenesInternasActivas(supabase);
+  const [{ data, error }, cecoRes] = await Promise.all([
+    obtenerOrdenesInternasActivas(supabase),
+    // Arrastre de una unidad presupuestada por CeCo (sin OI): viene de Fondos.
+    params.ceco
+      ? supabase.from("cecos").select("id, codigo_sap, nombre").eq("id", params.ceco).maybeSingle()
+      : Promise.resolve(null),
+  ]);
+  const ceco = cecoRes?.data
+    ? { id: cecoRes.data.id, etiqueta: `${cecoRes.data.codigo_sap} — ${cecoRes.data.nombre}` }
+    : undefined;
 
   // Solo órdenes vigentes en el año fiscal de la solicitud.
   const ordenesInternas: OpcionOi[] = data
@@ -72,6 +82,7 @@ export default async function NuevaSolicitudPage({
           fy={fy}
           tipoInicial={tipo}
           oiInicial={params.oi}
+          ceco={ceco}
           trimestreInicial={params.trimestre ? Number(params.trimestre) : undefined}
           montoInicial={params.monto ? Number(params.monto) : undefined}
         />

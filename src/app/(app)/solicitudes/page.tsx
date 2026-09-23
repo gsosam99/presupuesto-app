@@ -60,7 +60,7 @@ export default async function SolicitudesPage() {
           <p className="ui-eyebrow">Gestión de presupuesto</p>
           <h1 className="ui-title">Solicitudes</h1>
           <p className="ui-lead">
-            Extra plan y prórrogas de sobrante. La app arma el archivo para finanzas y deja el
+            Extra plan y arrastres (prórrogas) de sobrante. La app arma el archivo para finanzas y deja el
             pedido pendiente; cuando Charles y finanzas aprueban por fuera, lo marcas como aprobado
             y los fondos entran al presupuesto.
           </p>
@@ -78,7 +78,7 @@ export default async function SolicitudesPage() {
               href={`/solicitudes/nueva?tipo=prorroga&fy=${fy}`}
               className="rounded-md border border-[var(--line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--line-soft)]"
             >
-              Nueva prórroga
+              Nuevo arrastre (prórroga)
             </Link>
           </div>
         )}
@@ -101,7 +101,7 @@ export default async function SolicitudesPage() {
       <section className="mt-8">
         {filas.length === 0 ? (
           <p className="ui-card px-4 py-10 text-center text-sm text-[var(--muted)]">
-            Todavía no hay solicitudes. Empieza por una de extra plan o una prórroga.
+            Todavía no hay solicitudes. Empieza por una de extra plan o un arrastre (prórroga).
           </p>
         ) : (
           <div className="ui-card overflow-x-auto">
@@ -128,7 +128,7 @@ export default async function SolicitudesPage() {
                         {f.titulo}
                       </Link>
                     </td>
-                    <td>{f.tipo === "extra_plan" ? "Extra plan" : "Prórroga"}</td>
+                    <td>{f.tipo === "extra_plan" ? "Extra plan" : "Arrastre (prórroga)"}</td>
                     <td className="font-mono text-xs">
                       {f.id_oi ? (codigoPorOi.get(f.id_oi) ?? "—") : "—"}
                     </td>

@@ -18,8 +18,24 @@ export default async function FondosPage() {
   const supabase = await createSupabaseServerClient();
   const puedeSolicitar = tienePermiso(await obtenerRol(), "solicitudes:crear");
 
-  const filas = await obtenerDisponibilidad(supabase, fy);
+  const [filas, prorrogas] = await Promise.all([
+    obtenerDisponibilidad(supabase, fy),
+    supabase
+      .from("solicitudes")
+      .select("id, estado, id_oi, id_ceco, trimestre")
+      .eq("tipo", "prorroga")
+      .eq("fy", fy)
+      .neq("estado", "rechazada"),
+  ]);
   const unidades = agruparPorUnidad(filas);
+
+  // Arrastres ya pedidos por unidad y trimestre: evita pedir dos veces el mismo.
+  const arrastrePedido = new Map(
+    (prorrogas.data ?? []).map((p) => [
+      `${p.id_oi ?? p.id_ceco}:${p.trimestre}`,
+      { id: p.id as string, estado: p.estado as string },
+    ]),
+  );
 
   const totalDisponibleHoy = unidades.reduce((s, u) => s + u.saldoActual, 0);
   const totalPorHabilitar = unidades.reduce((s, u) => s + u.porHabilitar, 0);
@@ -36,8 +52,8 @@ export default async function FondosPage() {
           <h1 className="ui-title">Fondos disponibles</h1>
           <p className="ui-lead">
             Los fondos planificados se habilitan por trimestre. Lo que no se consume{" "}
-            <strong>se pierde al cerrar el trimestre</strong>, salvo que exista una
-            prórroga aprobada que lo arrastre al siguiente.
+            <strong>se pierde al cerrar el trimestre</strong>, salvo que exista un
+            arrastre (prórroga) aprobado que lo pase al siguiente.
           </p>
         </div>
 
@@ -65,6 +81,35 @@ export default async function FondosPage() {
             {moneda.format(totalVencido)}
           </p>
         </article>
+      </section>
+
+      {prorrogas.error && (
+        <p className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          No se pudieron leer los arrastres pedidos: {prorrogas.error.message}
+        </p>
+      )}
+
+      <section className="mt-6 rounded-md border border-[var(--line)] bg-white px-4 py-3 text-sm text-[var(--ink-soft)]">
+        <h2 className="font-semibold text-[var(--ink)]">Cómo funciona el arrastre de fondos</h2>
+        <ol className="mt-2 list-decimal space-y-1 pl-5">
+          <li>
+            En la tabla de cada orden, usa <strong>Solicitar arrastre</strong>: en el
+            trimestre en curso (preventivo, sobre el saldo de hoy) o en uno ya cerrado
+            (sobre lo que venció).
+          </li>
+          <li>
+            Se crea una solicitud de tipo arrastre (prórroga). Márcala como enviada y,
+            cuando Charles y finanzas la aprueben por fuera, como aprobada en{" "}
+            <Link href="/solicitudes" className="font-semibold underline">
+              Solicitudes
+            </Link>
+            .
+          </li>
+          <li>
+            Aprobada, el monto aparece como <strong>Arrastre recibido</strong> en el
+            trimestre siguiente, hasta el saldo que efectivamente sobró al cerrar.
+          </li>
+        </ol>
       </section>
 
       {sinPresupuesto && (
@@ -142,8 +187,19 @@ export default async function FondosPage() {
                     </thead>
                     <tbody>
                       {u.trimestres.map((t) => {
-                        const puedeProrrogar =
-                          t.estado_trimestre === "cerrado" && t.vencido > 0;
+                        // El Q4 no tiene "siguiente" dentro del año fiscal.
+                        const montoArrastre =
+                          t.trimestre === 4
+                            ? 0
+                            : t.estado_trimestre === "actual"
+                              ? Math.max(t.saldo, 0)
+                              : t.estado_trimestre === "cerrado"
+                                ? t.vencido
+                                : 0;
+                        const pedido = arrastrePedido.get(
+                          `${u.idOi ?? u.idCeco}:${t.trimestre}`,
+                        );
+                        const unidadParam = u.idOi ? `oi=${u.idOi}` : `ceco=${u.idCeco}`;
 
                         return (
                           <tr
@@ -200,13 +256,24 @@ export default async function FondosPage() {
                               )}
                             </td>
                             <td className="whitespace-nowrap">
-                              {puedeSolicitar && puedeProrrogar && u.idOi && (
+                              {pedido ? (
                                 <Link
-                                  href={`/solicitudes/nueva?tipo=prorroga&oi=${u.idOi}&fy=${fy}&trimestre=${t.trimestre}&monto=${t.vencido}`}
-                                  className="text-[11px] font-semibold text-[var(--blue)] underline"
+                                  href={`/solicitudes/${pedido.id}`}
+                                  className="rounded-full bg-[rgba(46,117,182,0.1)] px-2 py-0.5 text-[10px] font-semibold text-[var(--blue)]"
                                 >
-                                  Pedir prórroga
+                                  arrastre {pedido.estado}
                                 </Link>
+                              ) : (
+                                puedeSolicitar &&
+                                montoArrastre > 0 &&
+                                (u.idOi || u.idCeco) && (
+                                  <Link
+                                    href={`/solicitudes/nueva?tipo=prorroga&${unidadParam}&fy=${fy}&trimestre=${t.trimestre}&monto=${montoArrastre.toFixed(2)}`}
+                                    className="text-[11px] font-semibold text-[var(--blue)] underline"
+                                  >
+                                    Solicitar arrastre
+                                  </Link>
+                                )
                               )}
                             </td>
                           </tr>

@@ -82,7 +82,7 @@ export default async function SolicitudPage({
           <Link href="/solicitudes" className="hover:underline">
             Solicitudes
           </Link>{" "}
-          · {tipo === "extra_plan" ? "Extra plan" : "Prórroga"}
+          · {tipo === "extra_plan" ? "Extra plan" : "Arrastre (prórroga)"}
         </p>
         <h1 className="ui-title">{solicitud.titulo as string}</h1>
         <p className="ui-lead">

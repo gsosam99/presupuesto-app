@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { requireApiPermiso } from "@/lib/auth";
+import { trimestreIniciado } from "@/lib/fiscal";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -49,6 +50,14 @@ const cuerpoSchema = z
       }
       if (!cuerpo.monto_solicitado || cuerpo.monto_solicitado <= 0) {
         ctx.addIssue({ code: "custom", message: "Indica el monto a conservar" });
+      }
+      // El sobrante de un trimestre que todavía no empezó no existe: el
+      // arrastre se pide sobre el trimestre en curso (preventivo) o uno cerrado.
+      if (cuerpo.trimestre && !trimestreIniciado(cuerpo.fy, cuerpo.trimestre)) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Ese trimestre todavía no empezó: el arrastre se pide sobre el trimestre en curso o uno cerrado",
+        });
       }
     }
   });
