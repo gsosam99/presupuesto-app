@@ -31,6 +31,8 @@ interface Props {
   filas: FilaMaestra[];
   /** Texto del botón de alta, p. ej. "Nueva orden interna". */
   etiquetaAlta: string;
+  /** El rol no puede editar esta maestra: se muestra sin controles ni alta. */
+  soloLectura?: boolean;
 }
 
 const CELDA = CONTROL_CELDA;
@@ -92,7 +94,13 @@ function Th({
   );
 }
 
-export function TablaMaestra({ entidad, campos, filas, etiquetaAlta }: Props) {
+export function TablaMaestra({
+  entidad,
+  campos,
+  filas,
+  etiquetaAlta,
+  soloLectura = false,
+}: Props) {
   const router = useRouter();
 
   const [edicion, setEdicion] = useState<Record<string, FilaMaestra>>({});
@@ -110,7 +118,7 @@ export function TablaMaestra({ entidad, campos, filas, etiquetaAlta }: Props) {
   const [porPagina, setPorPagina] = useState<number>(50);
   const [pagina, setPagina] = useState(0);
 
-  const editables = campos.filter((c) => !c.soloLectura);
+  const editables = campos.filter((c) => !c.soloLectura && !soloLectura);
   const sucias = Object.keys(edicion);
 
   const visibles = useMemo(() => {
@@ -413,9 +421,9 @@ export function TablaMaestra({ entidad, campos, filas, etiquetaAlta }: Props) {
                     const valor = cambios?.[c.clave] ?? fila[c.clave];
                     return (
                       <td key={c.clave}>
-                        {c.soloLectura ? (
+                        {c.soloLectura || soloLectura ? (
                           <span className="text-[var(--muted)]">
-                            {valor === null || valor === "" ? "—" : String(valor)}
+                            {valor === null || valor === "" ? "—" : textoDeCampo(c, valor)}
                           </span>
                         ) : (
                           campoEditor(c, valor ?? null, (v) => editar(fila.id, c.clave, v))
@@ -497,7 +505,7 @@ export function TablaMaestra({ entidad, campos, filas, etiquetaAlta }: Props) {
         </div>
       )}
 
-      {!nueva && (
+      {!nueva && !soloLectura && (
         <Button type="button" variante="secundario" className="mt-3" onClick={abrirAlta}>
           {etiquetaAlta}
         </Button>

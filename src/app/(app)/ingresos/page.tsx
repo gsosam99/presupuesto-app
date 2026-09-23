@@ -4,9 +4,11 @@ import {
   type SugerenciasIngreso,
 } from "@/components/ingresos/FormularioIngreso";
 import { TablaIngresos, type FilaIngreso } from "@/components/ingresos/TablaIngresos";
+import { obtenerRol } from "@/lib/auth";
 import { fyActual, fyEtiqueta, MESES_FY, nombreMes } from "@/lib/fiscal";
 import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { moneda } from "@/lib/format";
+import { tienePermiso } from "@/lib/permisos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Ingresos — IENN Gastos App" };
@@ -19,14 +21,11 @@ function mesInicialDelFy(fy: number, hoy = new Date()): number {
 
 export default async function IngresosPage() {
   const supabase = await createSupabaseServerClient();
+  const puedeEditar = tienePermiso(await obtenerRol(), "ingresos:editar");
   const fy = await obtenerFySeleccionado();
 
   const [hzs, tax, ingresos] = await Promise.all([
-    supabase
-      .from("hunting_zones")
-      .select("id, nombre")
-      .eq("activo", true)
-      .order("orden_display"),
+    supabase.from("hunting_zones").select("id, nombre").eq("activo", true).order("orden_display"),
     supabase.from("v_valores_taxonomia").select("campo, valor").order("usos", { ascending: false }),
     supabase
       .from("ingresos")
@@ -69,10 +68,9 @@ export default async function IngresosPage() {
           <p className="ui-eyebrow">Gestión de presupuesto</p>
           <h1 className="ui-title">Ingresos</h1>
           <p className="ui-lead">
-            Lo que efectivamente cobraron los proyectos, mes a mes. A diferencia de los
-            gastos, un ingreso no cuelga de un Centro de Costo ni de una Orden Interna: se
-            imputa directo a la Hunting Zone. Sólo se registra lo real — los ingresos no se
-            presupuestan.
+            Lo que efectivamente cobraron los proyectos, mes a mes. A diferencia de los gastos, un
+            ingreso no cuelga de un Centro de Costo ni de una Orden Interna: se imputa directo a la
+            Hunting Zone. Sólo se registra lo real — los ingresos no se presupuestan.
           </p>
         </div>
         <span className="rounded-md bg-[var(--navy)] px-3 py-1.5 text-sm font-semibold text-white">
@@ -105,28 +103,36 @@ export default async function IngresosPage() {
         </div>
       </section>
 
-      <section className="mt-8">
-        <h2 className="ui-section-title">Registrar un ingreso</h2>
-        <div className="mt-3">
-          <FormularioIngreso
-            fy={fy}
-            huntingZones={huntingZones}
-            sugerencias={sugerencias}
-            mesInicial={mesActual}
-          />
-        </div>
-      </section>
+      {puedeEditar && (
+        <section className="mt-8">
+          <h2 className="ui-section-title">Registrar un ingreso</h2>
+          <div className="mt-3">
+            <FormularioIngreso
+              fy={fy}
+              huntingZones={huntingZones}
+              sugerencias={sugerencias}
+              mesInicial={mesActual}
+            />
+          </div>
+        </section>
+      )}
 
       <section className="mt-10">
         <h2 className="ui-section-title">Ingresos del año</h2>
         <div className="mb-3 mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted)]">
           {MESES_FY.filter((m) => porMes.has(m)).map((m) => (
             <span key={m}>
-              {nombreMes(m)}: <strong className="text-[var(--ink)]">{moneda.format(porMes.get(m) ?? 0)}</strong>
+              {nombreMes(m)}:{" "}
+              <strong className="text-[var(--ink)]">{moneda.format(porMes.get(m) ?? 0)}</strong>
             </span>
           ))}
         </div>
-        <TablaIngresos filas={filas} huntingZones={huntingZones} sugerencias={sugerencias} />
+        <TablaIngresos
+          filas={filas}
+          huntingZones={huntingZones}
+          sugerencias={sugerencias}
+          soloLectura={!puedeEditar}
+        />
       </section>
     </main>
   );

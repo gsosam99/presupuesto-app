@@ -19,7 +19,14 @@ export interface GastoArchivado {
   hunting_zone: string | null;
 }
 
-export function TablaArchivados({ gastos }: { gastos: GastoArchivado[] }) {
+export function TablaArchivados({
+  gastos,
+  soloLectura = false,
+}: {
+  gastos: GastoArchivado[];
+  /** El rol no puede devolver gastos al triaje. */
+  soloLectura?: boolean;
+}) {
   const router = useRouter();
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [devueltos, setDevueltos] = useState<Set<string>>(new Set());
@@ -135,6 +142,7 @@ export function TablaArchivados({ gastos }: { gastos: GastoArchivado[] }) {
               <th className="w-9">
                 <input
                   type="checkbox"
+                  disabled={soloLectura}
                   aria-label="Seleccionar todos"
                   checked={todos}
                   onChange={() =>
@@ -157,6 +165,7 @@ export function TablaArchivados({ gastos }: { gastos: GastoArchivado[] }) {
                 <td>
                   <input
                     type="checkbox"
+                    disabled={soloLectura}
                     aria-label={`Seleccionar gasto del ${g.fecha_documento}`}
                     checked={seleccion.has(g.id)}
                     onChange={() =>

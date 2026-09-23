@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requireApiUser } from "@/lib/auth";
+import { requireApiPermiso } from "@/lib/auth";
 import { resolverOiPorId } from "@/lib/presupuesto/resolverOi";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -26,7 +26,7 @@ const cuerpoSchema = z.object({
 export async function POST(request: Request): Promise<Response> {
   try {
     const supabase = await createSupabaseServerClient();
-    const auth = await requireApiUser(supabase);
+    const auth = await requireApiPermiso(supabase, "facturas:editar");
     if ("response" in auth) return auth.response;
 
     const parsed = cuerpoSchema.safeParse(await request.json());

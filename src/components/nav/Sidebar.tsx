@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 import { Menu, PanelLeftClose, PanelLeftOpen, Settings, X } from "lucide-react";
 
 import { BotonSalir } from "@/components/auth/BotonSalir";
+import { ETIQUETA_ROL } from "@/lib/permisos";
+import type { RolApp } from "@/types";
 
 import { NAVEGACION } from "./navegacion";
 import { SelectorAnioFiscal } from "./SelectorAnioFiscal";
@@ -46,7 +48,7 @@ function snapshotColapsadoServidor(): boolean {
 }
 
 interface Props {
-  usuario: { email: string };
+  usuario: { email: string; rol: RolApp };
   aniosFiscales: Array<{ fy: number; etiqueta: string }>;
   fySeleccionado: number;
 }
@@ -234,7 +236,12 @@ export function Sidebar({ usuario, aniosFiscales, fySeleccionado }: Props) {
 
           <div className={"mt-1 " + (colapsado && !mobileAbierto ? "" : "px-2.5")}>
             {(!colapsado || mobileAbierto) && (
-              <p className="truncate pb-1 text-[11px] text-[#8fb4c9]">{usuario.email}</p>
+              <p className="truncate pb-1 text-[11px] text-[#8fb4c9]">
+                {usuario.email}
+                <span className="ml-1.5 rounded bg-[rgba(143,180,201,0.18)] px-1.5 py-0.5 text-[10px] font-semibold text-[#eaf2f7]">
+                  {ETIQUETA_ROL[usuario.rol]}
+                </span>
+              </p>
             )}
           </div>
           <BotonSalir variante="sidebar" colapsado={colapsado && !mobileAbierto} />

@@ -4,6 +4,7 @@ import {
   FormularioSolicitud,
   type OpcionOi,
 } from "@/components/solicitudes/FormularioSolicitud";
+import { requireRol } from "@/lib/auth";
 import { fyActual, fyEtiqueta } from "@/lib/fiscal";
 import { obtenerOrdenesInternasActivas } from "@/lib/presupuesto/ordenesInternas";
 import { etiquetaVigencia, vigenteEnFy } from "@/lib/presupuesto/vigencia";
@@ -25,6 +26,7 @@ export default async function NuevaSolicitudPage({
   }>;
 }) {
   const params = await searchParams;
+  await requireRol("solicitudes:crear");
   const tipo: TipoSolicitud = params.tipo === "prorroga" ? "prorroga" : "extra_plan";
   const fy = Number(params.fy) || fyActual();
 

@@ -17,6 +17,8 @@ export interface SeccionMaestra {
   campos: CampoMaestra[];
   filas: FilaMaestra[];
   etiquetaAlta: string;
+  /** El rol de la sesión no puede editar esta maestra. */
+  soloLectura?: boolean;
 }
 
 interface Props {
@@ -106,6 +108,7 @@ export function PanelMaestras({ secciones }: Props) {
           campos={seccion.campos}
           filas={seccion.filas}
           etiquetaAlta={seccion.etiquetaAlta}
+          soloLectura={seccion.soloLectura}
         />
       </div>
     </div>

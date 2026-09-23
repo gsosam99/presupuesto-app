@@ -1,5 +1,7 @@
 import { BotonRevertir } from "@/components/cargas/BotonRevertir";
 import { SubidaSap } from "@/components/cargas/SubidaSap";
+import { obtenerRol } from "@/lib/auth";
+import { tienePermiso } from "@/lib/permisos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Cargas — IENN Gastos App" };
@@ -28,6 +30,7 @@ const ETIQUETA_TIPO: Record<string, string> = {
 
 export default async function CargasPage() {
   const supabase = await createSupabaseServerClient();
+  const puedeCargar = tienePermiso(await obtenerRol(), "cargas:sap");
 
   const { data, error } = await supabase
     .from("cargas")
@@ -51,9 +54,11 @@ export default async function CargasPage() {
         </p>
       </header>
 
-      <section className="mt-8">
-        <SubidaSap />
-      </section>
+      {puedeCargar && (
+        <section className="mt-8">
+          <SubidaSap />
+        </section>
+      )}
 
       <section className="mt-12">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
@@ -125,7 +130,7 @@ export default async function CargasPage() {
                       })}
                     </td>
                     <td className="px-4 py-2 text-right">
-                      {c.estado === "completada" && c.filas_insertadas > 0 && (
+                      {puedeCargar && c.estado === "completada" && c.filas_insertadas > 0 && (
                         <BotonRevertir
                           idCarga={c.id}
                           nombreArchivo={c.nombre_archivo}

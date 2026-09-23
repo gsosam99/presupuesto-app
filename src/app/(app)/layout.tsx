@@ -1,10 +1,11 @@
 import { Sidebar } from "@/components/nav/Sidebar";
-import { requireAuth } from "@/lib/auth";
+import { requireRol } from "@/lib/auth";
 import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
-  const usuario = await requireAuth();
+  // Sin rol en la maestra de Equipo no se entra a ninguna pantalla.
+  const { user: usuario, rol } = await requireRol();
   const supabase = await createSupabaseServerClient();
 
   const [fySeleccionado, anios] = await Promise.all([
@@ -19,7 +20,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   return (
     <div className="flex min-h-svh flex-col lg:flex-row">
       <Sidebar
-        usuario={{ email: usuario.email ?? "" }}
+        usuario={{ email: usuario.email ?? "", rol }}
         aniosFiscales={(anios.data ?? []) as Array<{ fy: number; etiqueta: string }>}
         fySeleccionado={fySeleccionado}
       />

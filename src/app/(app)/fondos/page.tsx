@@ -1,8 +1,10 @@
 import Link from "next/link";
 
+import { obtenerRol } from "@/lib/auth";
 import { etiquetaTrimestre, fyEtiqueta, trimestreActual } from "@/lib/fiscal";
 import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { moneda } from "@/lib/format";
+import { tienePermiso } from "@/lib/permisos";
 import { agruparPorUnidad, obtenerDisponibilidad } from "@/lib/presupuesto/disponibilidad";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -14,6 +16,7 @@ export default async function FondosPage() {
   const tActual = trimestreActual();
 
   const supabase = await createSupabaseServerClient();
+  const puedeSolicitar = tienePermiso(await obtenerRol(), "solicitudes:crear");
 
   const filas = await obtenerDisponibilidad(supabase, fy);
   const unidades = agruparPorUnidad(filas);
@@ -197,7 +200,7 @@ export default async function FondosPage() {
                               )}
                             </td>
                             <td className="whitespace-nowrap">
-                              {puedeProrrogar && u.idOi && (
+                              {puedeSolicitar && puedeProrrogar && u.idOi && (
                                 <Link
                                   href={`/solicitudes/nueva?tipo=prorroga&oi=${u.idOi}&fy=${fy}&trimestre=${t.trimestre}&monto=${t.vencido}`}
                                   className="text-[11px] font-semibold text-[var(--blue)] underline"
@@ -213,7 +216,7 @@ export default async function FondosPage() {
                   </table>
                 </div>
 
-                {u.idOi && (
+                {puedeSolicitar && u.idOi && (
                   <footer className="border-t border-[var(--line-soft)] px-4 py-2 text-right">
                     <Link
                       href={`/solicitudes/nueva?tipo=extra_plan&oi=${u.idOi}&fy=${fy}`}

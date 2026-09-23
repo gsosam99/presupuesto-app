@@ -5,9 +5,11 @@ import {
   type OpcionOi,
   type Sugerencias,
 } from "@/components/facturas/FormularioFactura";
+import { obtenerRol } from "@/lib/auth";
 import { etiquetaTrimestre, trimestreActual } from "@/lib/fiscal";
 import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { moneda } from "@/lib/format";
+import { tienePermiso } from "@/lib/permisos";
 import { obtenerDisponibilidad } from "@/lib/presupuesto/disponibilidad";
 import { obtenerOrdenesInternasActivas } from "@/lib/presupuesto/ordenesInternas";
 import { etiquetaVigencia, vigenteEnFy } from "@/lib/presupuesto/vigencia";
@@ -31,6 +33,7 @@ interface FilaConciliacion {
 
 export default async function FacturasPage() {
   const supabase = await createSupabaseServerClient();
+  const puedeEditar = tienePermiso(await obtenerRol(), "facturas:editar");
 
   const fy = await obtenerFySeleccionado();
   const tActual = trimestreActual();
@@ -49,11 +52,7 @@ export default async function FacturasPage() {
 
   const [ois, hzs, cecosRes, tax, conciliacion] = await Promise.all([
     obtenerOrdenesInternasActivas(supabase),
-    supabase
-      .from("hunting_zones")
-      .select("id, nombre")
-      .eq("activo", true)
-      .order("orden_display"),
+    supabase.from("hunting_zones").select("id, nombre").eq("activo", true).order("orden_display"),
     supabase.from("cecos").select("id, codigo_sap, nombre").eq("activo", true).order("codigo_sap"),
     supabase.from("v_valores_taxonomia").select("campo, valor").order("usos", { ascending: false }),
     supabase
@@ -65,30 +64,28 @@ export default async function FacturasPage() {
       .limit(50),
   ]);
 
-  const hzPorId = new Map(
-    (hzs.data ?? []).map((h) => [h.id as string, h.nombre as string]),
-  );
+  const hzPorId = new Map((hzs.data ?? []).map((h) => [h.id as string, h.nombre as string]));
 
   // Las órdenes reales se filtran por vigencia del año fiscal en curso; las
   // etiquetas son transversales y siempre están disponibles.
   const ordenesInternas: OpcionOi[] = ois.data
     .filter((o) => o.tipo === "tag" || vigenteEnFy(o, fy))
     .map((o) => {
-    const fondos = fondosPorOi.get(o.id);
-    return {
-      id: o.id,
-      codigo: o.codigo_oi,
-      nombre: o.nombre,
-      tipo: o.tipo,
-      idCeco: o.id_ceco,
-      idHuntingZone: o.id_hunting_zone,
-      huntingZone: o.id_hunting_zone ? (hzPorId.get(o.id_hunting_zone) ?? null) : null,
-      saldoTrimestre: fondos?.saldo ?? null,
-      disponibleTrimestre: fondos?.disponible ?? null,
-      consumidoTrimestre: fondos?.consumido ?? null,
-      vigencia: o.tipo === "tag" ? null : etiquetaVigencia(o),
-    };
-  });
+      const fondos = fondosPorOi.get(o.id);
+      return {
+        id: o.id,
+        codigo: o.codigo_oi,
+        nombre: o.nombre,
+        tipo: o.tipo,
+        idCeco: o.id_ceco,
+        idHuntingZone: o.id_hunting_zone,
+        huntingZone: o.id_hunting_zone ? (hzPorId.get(o.id_hunting_zone) ?? null) : null,
+        saldoTrimestre: fondos?.saldo ?? null,
+        disponibleTrimestre: fondos?.disponible ?? null,
+        consumidoTrimestre: fondos?.consumido ?? null,
+        vigencia: o.tipo === "tag" ? null : etiquetaVigencia(o),
+      };
+    });
 
   const cecos: OpcionCeco[] = (cecosRes.data ?? []).map((c) => ({
     id: c.id as string,
@@ -113,10 +110,10 @@ export default async function FacturasPage() {
       <header>
         <h1 className="text-2xl font-semibold text-slate-900">Pre-registro de facturas</h1>
         <p className="mt-2 max-w-3xl text-sm text-slate-600">
-          Registra cada factura a medida que llega a finanzas. Cuando cargues el reporte
-          mensual de SAP, el cruce por número de factura le aplica al gasto la Orden
-          Interna y la taxonomía que definiste acá, sin pasar por el triaje. Una misma
-          factura puede cruzar con varias posiciones de SAP.
+          Registra cada factura a medida que llega a finanzas. Cuando cargues el reporte mensual de
+          SAP, el cruce por número de factura le aplica al gasto la Orden Interna y la taxonomía que
+          definiste acá, sin pasar por el triaje. Una misma factura puede cruzar con varias
+          posiciones de SAP.
         </p>
       </header>
 
@@ -126,18 +123,22 @@ export default async function FacturasPage() {
         </p>
       )}
 
-      <section className="mt-8">
-        <FormularioFactura
-          ordenesInternas={ordenesInternas}
-          cecos={cecos}
-          sugerencias={sugerencias}
-          trimestreActual={etiquetaTrimestre(tActual)}
-        />
-      </section>
+      {puedeEditar && (
+        <>
+          <section className="mt-8">
+            <FormularioFactura
+              ordenesInternas={ordenesInternas}
+              cecos={cecos}
+              sugerencias={sugerencias}
+              trimestreActual={etiquetaTrimestre(tActual)}
+            />
+          </section>
 
-      <section className="mt-6">
-        <CargaMasivaFacturas />
-      </section>
+          <section className="mt-6">
+            <CargaMasivaFacturas />
+          </section>
+        </>
+      )}
 
       <section className="mt-12">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
@@ -145,9 +146,7 @@ export default async function FacturasPage() {
         </h2>
 
         {filas.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-500">
-            Todavía no hay facturas pre-registradas.
-          </p>
+          <p className="mt-4 text-sm text-slate-500">Todavía no hay facturas pre-registradas.</p>
         ) : (
           <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200 bg-white">
             <table className="w-full min-w-[52rem] text-sm">
@@ -211,9 +210,9 @@ export default async function FacturasPage() {
         )}
 
         <p className="mt-3 text-xs text-slate-500">
-          El desvío solo se calcula cuando el monto declarado ya estaba en USD. Si lo
-          cargaste en Bs no se compara, porque SAP convierte a la tasa BCV del día de la
-          factura y nunca daría exacto.
+          El desvío solo se calcula cuando el monto declarado ya estaba en USD. Si lo cargaste en Bs
+          no se compara, porque SAP convierte a la tasa BCV del día de la factura y nunca daría
+          exacto.
         </p>
       </section>
     </main>

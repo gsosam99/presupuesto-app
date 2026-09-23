@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { requireApiUser } from "@/lib/auth";
+import { requireApiPermiso } from "@/lib/auth";
 import { importarPresupuestoExcel } from "@/lib/ingesta/presupuestos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { TipoPresupuesto } from "@/types";
@@ -13,7 +13,7 @@ const MAX_BYTES = 25 * 1024 * 1024;
 export async function POST(request: Request): Promise<Response> {
   try {
     const supabase = await createSupabaseServerClient();
-    const auth = await requireApiUser(supabase);
+    const auth = await requireApiPermiso(supabase, "presupuestos:cargar");
     if ("response" in auth) return auth.response;
 
     const formData = await request.formData();

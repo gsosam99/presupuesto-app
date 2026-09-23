@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { requireApiUser } from "@/lib/auth";
+import { aRolApp, tienePermiso } from "@/lib/permisos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { EstadoSolicitud } from "@/types";
 
@@ -66,6 +67,19 @@ export async function PATCH(
       return Response.json(
         { error: `No se puede pasar de "${actual}" a "${destino}".` },
         { status: 400 },
+      );
+    }
+
+    // Enviar o devolver a borrador es del solicitante; resolver (o deshacer
+    // una aprobación) es de quien puede comprometer presupuesto.
+    const resuelve =
+      destino === "aprobada" || destino === "rechazada" || actual === "aprobada";
+    const { data: rol } = await supabase.rpc("rol_actual");
+    const permiso = resuelve ? "solicitudes:resolver" : "solicitudes:crear";
+    if (!tienePermiso(aRolApp(rol), permiso)) {
+      return Response.json(
+        { error: "Tu rol no tiene permiso para esta acción." },
+        { status: 403 },
       );
     }
 

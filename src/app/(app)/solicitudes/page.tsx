@@ -1,8 +1,10 @@
 import Link from "next/link";
 
+import { obtenerRol } from "@/lib/auth";
 import { etiquetaTrimestre, fyEtiqueta } from "@/lib/fiscal";
 import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { moneda } from "@/lib/format";
+import { tienePermiso } from "@/lib/permisos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { EstadoSolicitud, TipoSolicitud } from "@/types";
 
@@ -30,6 +32,7 @@ const ESTILO_ESTADO: Record<EstadoSolicitud, string> = {
 
 export default async function SolicitudesPage() {
   const supabase = await createSupabaseServerClient();
+  const puedeCrear = tienePermiso(await obtenerRol(), "solicitudes:crear");
   const fy = await obtenerFySeleccionado();
 
   const [solicitudes, ois] = await Promise.all([
@@ -44,10 +47,7 @@ export default async function SolicitudesPage() {
 
   const filas = (solicitudes.data ?? []) as unknown as Fila[];
   const codigoPorOi = new Map(
-    ((ois.data ?? []) as Array<{ id: string; codigo_oi: string }>).map((o) => [
-      o.id,
-      o.codigo_oi,
-    ]),
+    ((ois.data ?? []) as Array<{ id: string; codigo_oi: string }>).map((o) => [o.id, o.codigo_oi]),
   );
 
   const pendientes = filas.filter((f) => f.estado === "enviada");
@@ -60,26 +60,28 @@ export default async function SolicitudesPage() {
           <p className="ui-eyebrow">Gestión de presupuesto</p>
           <h1 className="ui-title">Solicitudes</h1>
           <p className="ui-lead">
-            Extra plan y prórrogas de sobrante. La app arma el archivo para finanzas y
-            deja el pedido pendiente; cuando Charles y finanzas aprueban por fuera, lo
-            marcas como aprobado y los fondos entran al presupuesto.
+            Extra plan y prórrogas de sobrante. La app arma el archivo para finanzas y deja el
+            pedido pendiente; cuando Charles y finanzas aprueban por fuera, lo marcas como aprobado
+            y los fondos entran al presupuesto.
           </p>
         </div>
 
-        <div className="flex gap-2">
-          <Link
-            href={`/solicitudes/nueva?tipo=extra_plan&fy=${fy}`}
-            className="rounded-md bg-[var(--navy)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
-          >
-            Nuevo extra plan
-          </Link>
-          <Link
-            href={`/solicitudes/nueva?tipo=prorroga&fy=${fy}`}
-            className="rounded-md border border-[var(--line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--line-soft)]"
-          >
-            Nueva prórroga
-          </Link>
-        </div>
+        {puedeCrear && (
+          <div className="flex gap-2">
+            <Link
+              href={`/solicitudes/nueva?tipo=extra_plan&fy=${fy}`}
+              className="rounded-md bg-[var(--navy)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+            >
+              Nuevo extra plan
+            </Link>
+            <Link
+              href={`/solicitudes/nueva?tipo=prorroga&fy=${fy}`}
+              className="rounded-md border border-[var(--line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--line-soft)]"
+            >
+              Nueva prórroga
+            </Link>
+          </div>
+        )}
       </header>
 
       {errorCarga && (
@@ -92,8 +94,7 @@ export default async function SolicitudesPage() {
         <p className="mt-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           Tienes <strong>{pendientes.length}</strong>{" "}
           {pendientes.length === 1 ? "solicitud enviada" : "solicitudes enviadas"} esperando
-          respuesta. Cuando finanzas apruebe, entra y márcala para que los fondos se
-          carguen.
+          respuesta. Cuando finanzas apruebe, entra y márcala para que los fondos se carguen.
         </p>
       )}
 

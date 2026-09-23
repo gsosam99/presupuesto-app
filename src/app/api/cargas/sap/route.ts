@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { requireApiUser } from "@/lib/auth";
+import { requireApiPermiso } from "@/lib/auth";
 import { ingestarSap, type FiltroCarga, type ResumenIngesta } from "@/lib/ingesta/sap";
 import { parsearArchivoSap } from "@/lib/sap/parser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -20,7 +20,7 @@ function fechaOpcional(valor: FormDataEntryValue | null): string | null {
 export async function POST(request: Request): Promise<Response> {
   try {
     const supabase = await createSupabaseServerClient();
-    const auth = await requireApiUser(supabase);
+    const auth = await requireApiPermiso(supabase, "cargas:sap");
     if ("response" in auth) return auth.response;
 
     const formData = await request.formData();

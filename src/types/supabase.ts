@@ -5,10 +5,10 @@
  *   npx supabase gen types typescript --project-id <PROJECT_ID> --schema public > src/types/supabase.ts
  *
  * Hasta que exista un proyecto Supabase vivo contra el cual generar, este
- * archivo declara a mano las 10 tablas que hoy tocan los Route Handlers y
+ * archivo declara a mano las 11 tablas que hoy tocan los Route Handlers y
  * Server Components (cecos, ordenes_internas, hunting_zones,
  * facturas_preregistradas, presupuestos, solicitudes, gastos, cargas,
- * anios_fiscales, ingresos) — copiadas de los `create table`/`alter table` de
+ * anios_fiscales, ingresos, miembros_equipo) — copiadas de los `create table`/`alter table` de
  * supabase/schema.sql — y
  * deja el resto de las tablas y todas las vistas bajo el stub genérico
  * `Record<string, Json>` de siempre. Los tipos de dominio (los que usa la UI)
@@ -41,6 +41,8 @@ type TipoCargaDB =
   | "preregistro_facturas"
   | "maestras";
 type EstadoCargaDB = "procesando" | "completada" | "fallida" | "revertida";
+type RolAppDB = "admin" | "finanzas" | "analista" | "lector";
+type MetodoCruceDB = "automatico" | "manual";
 
 // ---------------------------------------------------------------------------
 // Tablas tipadas a mano
@@ -153,6 +155,9 @@ interface FacturasPreregistradasRow {
   /** Columna generada (stored): no se inserta ni se actualiza. */
   numero_normalizado: string | null;
   id_ceco: string | null;
+  /** Número de Orden impreso en la factura. NO es la Orden Interna (id_oi). */
+  numero_orden: string | null;
+  id_encargado: string | null;
 }
 interface FacturasPreregistradasInsert {
   id?: string;
@@ -175,6 +180,8 @@ interface FacturasPreregistradasInsert {
   created_at?: string;
   updated_at?: string;
   id_ceco?: string | null;
+  numero_orden?: string | null;
+  id_encargado?: string | null;
 }
 
 interface PresupuestosRow {
@@ -295,6 +302,8 @@ interface GastosRow {
   revisado_at: string | null;
   created_at: string;
   updated_at: string;
+  id_encargado: string | null;
+  metodo_cruce: MetodoCruceDB | null;
 }
 interface GastosInsert {
   id?: string;
@@ -325,6 +334,8 @@ interface GastosInsert {
   revisado_at?: string | null;
   created_at?: string;
   updated_at?: string;
+  id_encargado?: string | null;
+  metodo_cruce?: MetodoCruceDB | null;
 }
 
 interface CargasRow {
@@ -343,6 +354,7 @@ interface CargasRow {
   finalizada_at: string | null;
   revertida_at: string | null;
   revertida_por: string | null;
+  id_lote: string | null;
 }
 interface CargasInsert {
   id?: string;
@@ -360,6 +372,7 @@ interface CargasInsert {
   finalizada_at?: string | null;
   revertida_at?: string | null;
   revertida_por?: string | null;
+  id_lote?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -407,8 +420,27 @@ interface IngresosInsert {
   updated_at?: string;
 }
 
+interface MiembrosEquipoRow {
+  id: string;
+  nombre: string;
+  correo: string;
+  rol: RolAppDB | null;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+interface MiembrosEquipoInsert {
+  id?: string;
+  nombre: string;
+  correo: string;
+  rol?: RolAppDB | null;
+  activo?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 /**
- * Las 10 tablas tipadas a mano. Separado de `Tables` abajo (en vez de un
+ * Las 11 tablas tipadas a mano. Separado de `Tables` abajo (en vez de un
  * literal con propiedades nombradas + índice `[key: string]`) porque TS
  * rechaza esa combinación (TS2411) cuando los tipos concretos no son
  * estructuralmente idénticos al stub genérico — la intersección de dos tipos
@@ -458,6 +490,12 @@ type TablasConocidas = {
     Row: IngresosRow;
     Insert: IngresosInsert;
     Update: Partial<IngresosInsert>;
+    Relationships: [];
+  };
+  miembros_equipo: {
+    Row: MiembrosEquipoRow;
+    Insert: MiembrosEquipoInsert;
+    Update: Partial<MiembrosEquipoInsert>;
     Relationships: [];
   };
 };

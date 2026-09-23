@@ -1,7 +1,9 @@
 import { SubidaPresupuesto } from "@/components/presupuestos/SubidaPresupuesto";
+import { obtenerRol } from "@/lib/auth";
 import { fyEtiqueta, nombreMes } from "@/lib/fiscal";
 import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { moneda } from "@/lib/format";
+import { tienePermiso } from "@/lib/permisos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Presupuestos — IENN Gastos App" };
@@ -17,6 +19,7 @@ interface FilaPresupuesto {
 
 export default async function PresupuestosPage() {
   const supabase = await createSupabaseServerClient();
+  const puedeCargar = tienePermiso(await obtenerRol(), "presupuestos:cargar");
   const fy = await obtenerFySeleccionado();
 
   const { data, error } = await supabase
@@ -63,9 +66,11 @@ export default async function PresupuestosPage() {
         </p>
       )}
 
-      <section className="mt-8">
-        <SubidaPresupuesto />
-      </section>
+      {puedeCargar && (
+        <section className="mt-8">
+          <SubidaPresupuesto />
+        </section>
+      )}
 
       <section className="mt-12">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">

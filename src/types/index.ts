@@ -36,9 +36,28 @@ export type TipoCarga =
 
 export type EstadoCarga = "procesando" | "completada" | "fallida";
 
+/** Rol de un usuario de la app. Ver la matriz de permisos en src/lib/permisos.ts. */
+export type RolApp = "admin" | "finanzas" | "analista" | "lector";
+
+/** Cómo se asoció un gasto con su factura pre-registrada. */
+export type MetodoCruce = "automatico" | "manual";
+
 // ---------------------------------------------------------------------------
 // Maestras
 // ---------------------------------------------------------------------------
+
+/**
+ * Miembro del equipo: encargado de facturas y, si tiene rol, usuario de la app.
+ * Se enlaza con la sesión por correo.
+ */
+export interface MiembroEquipo {
+  id: string;
+  nombre: string;
+  correo: string;
+  /** null = encargado sin acceso a la app. */
+  rol: RolApp | null;
+  activo: boolean;
+}
 
 export interface Ceco {
   id: string;
@@ -224,6 +243,9 @@ export interface FacturaPreregistrada {
   moneda: "USD" | "VES";
   nota: string | null;
   activo: boolean;
+  /** Número de Orden impreso en la factura. NO es la Orden Interna (id_oi). */
+  numero_orden: string | null;
+  id_encargado: string | null;
 }
 
 /** Fila de v_conciliacion_facturas: una factura puede tener varias posiciones en SAP. */
@@ -240,6 +262,20 @@ export interface ConciliacionFactura {
   /** Solo se calcula si el estimado estaba en USD. */
   desvio_usd: number | null;
   conciliada: boolean;
+  numero_orden: string | null;
+  id_encargado: string | null;
+  encargado: string | null;
+  texto_referencia: string | null;
+  id_oi: string | null;
+  codigo_oi: string | null;
+  hunting_zone: string | null;
+  fase: string | null;
+  motivo: string | null;
+  detalle: string | null;
+  nota: string | null;
+  id_ceco: string | null;
+  proveedor_codigo: string | null;
+  created_at: string;
 }
 
 // ---------------------------------------------------------------------------

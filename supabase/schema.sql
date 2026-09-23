@@ -1142,3 +1142,194 @@ from public.ingresos i
 group by i.fy, to_char(i.fecha_periodo, 'YYYY-MM');
 
 alter view public.v_ingreso_mensual set (security_invoker = on);
+
+-- ============================================================================
+-- 15. Equipo, roles, número de orden, encargado y trazabilidad del cruce
+--     2026-09-23
+-- ============================================================================
+-- Autocontenida, igual que las secciones 10 a 14 (no agregar estas tablas a
+-- los bucles de las secciones 6 y 8: corren antes de que existan).
+--
+--   · miembros_equipo: maestra de personas (nombre + correo). Es a la vez el
+--     catálogo de ENCARGADOS de una factura y la tabla de USUARIOS de la app:
+--     si el correo coincide con el de la sesión, el miembro recibe su rol.
+--     rol null = encargado sin acceso a la app.
+--   · facturas_preregistradas.numero_orden: dato impreso en la factura. NO es
+--     la Orden Interna de SAP (id_oi).
+--   · gastos.id_encargado / metodo_cruce: el encargado se hereda de la factura
+--     al cruzar; metodo_cruce distingue el cruce automático del manual.
+--   · cargas.id_lote: agrupa los archivos subidos juntos en el asistente.
+
+do $$ begin
+  create type public.rol_app as enum ('admin', 'finanzas', 'analista', 'lector');
+exception when duplicate_object then null; end $$;
+
+create table if not exists public.miembros_equipo (
+  id          uuid primary key default gen_random_uuid(),
+  nombre      text not null,
+  correo      text not null unique,
+  rol         public.rol_app,
+  activo      boolean not null default true,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  constraint miembros_nombre_no_vacio check (btrim(nombre) <> ''),
+  -- Se guarda normalizado: el enlace con auth.users es por correo.
+  constraint miembros_correo_normalizado check (correo = lower(btrim(correo)) and correo like '%@%')
+);
+
+comment on table public.miembros_equipo is
+  'Miembros del equipo: encargados de facturas y usuarios de la app. rol null = sin acceso.';
+
+drop trigger if exists trg_miembros_equipo_updated_at on public.miembros_equipo;
+create trigger trg_miembros_equipo_updated_at
+  before update on public.miembros_equipo
+  for each row execute function public.tg_set_updated_at();
+
+alter table public.miembros_equipo enable row level security;
+
+drop policy if exists "acceso_autenticado" on public.miembros_equipo;
+create policy "acceso_autenticado" on public.miembros_equipo
+  for all to authenticated
+  using (true) with check (true);
+
+-- Rol del usuario de la sesión. SECURITY DEFINER para poder leer la maestra
+-- aunque el RLS por rol (sección 16) restrinja la tabla.
+create or replace function public.rol_actual()
+returns public.rol_app
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select m.rol
+  from public.miembros_equipo m
+  where m.activo
+    and m.correo = lower(coalesce(auth.jwt() ->> 'email', ''))
+  limit 1;
+$$;
+
+revoke all on function public.rol_actual() from public;
+grant execute on function public.rol_actual() to authenticated;
+
+-- Número de Orden y encargado de la factura --------------------------------
+alter table public.facturas_preregistradas
+  add column if not exists numero_orden text,
+  add column if not exists id_encargado uuid references public.miembros_equipo(id) on delete set null;
+
+comment on column public.facturas_preregistradas.numero_orden is
+  'Número de Orden impreso en la factura. NO es la Orden Interna de SAP (id_oi).';
+
+create index if not exists idx_fp_encargado on public.facturas_preregistradas(id_encargado);
+create index if not exists idx_fp_numero_orden on public.facturas_preregistradas(numero_orden);
+
+-- Encargado y método de cruce en el gasto ----------------------------------
+alter table public.gastos
+  add column if not exists id_encargado uuid references public.miembros_equipo(id) on delete set null,
+  add column if not exists metodo_cruce text;
+
+do $$ begin
+  alter table public.gastos add constraint gastos_metodo_cruce_valido
+    check (metodo_cruce is null or metodo_cruce in ('automatico', 'manual'));
+exception when duplicate_object then null; end $$;
+
+create index if not exists idx_gastos_encargado on public.gastos(id_encargado);
+
+-- Los gastos que ya cruzaron antes de esta sección fueron cruces de la ingesta.
+update public.gastos
+set metodo_cruce = 'automatico'
+where id_factura_preregistrada is not null and metodo_cruce is null;
+
+-- Lote de carga -------------------------------------------------------------
+alter table public.cargas add column if not exists id_lote uuid;
+create index if not exists idx_cargas_lote on public.cargas(id_lote);
+
+-- Conciliación: columnas nuevas SOLO al final (42P16) -----------------------
+create or replace view public.v_conciliacion_facturas as
+select
+  fp.id                          as id_factura_preregistrada,
+  fp.numero_factura,
+  fp.numero_normalizado,
+  fp.proveedor_codigo,
+  fp.proveedor,
+  fp.fecha_factura,
+  fp.monto_estimado,
+  fp.moneda,
+  count(g.id)                    as posiciones_sap,
+  coalesce(sum(g.monto_real), 0) as monto_real_sap,
+  case
+    when fp.monto_estimado is null or fp.moneda <> 'USD' then null
+    else round(coalesce(sum(g.monto_real), 0) - fp.monto_estimado, 2)
+  end                            as desvio_usd,
+  bool_or(g.id is not null)      as conciliada,
+  fp.numero_orden,
+  fp.id_encargado,
+  me.nombre                      as encargado,
+  fp.texto_referencia,
+  fp.id_oi,
+  oi.codigo_oi,
+  hz.nombre                      as hunting_zone,
+  fp.fase,
+  fp.motivo,
+  fp.detalle,
+  fp.nota,
+  fp.id_ceco,
+  fp.created_at
+from public.facturas_preregistradas fp
+left join public.gastos g            on g.id_factura_preregistrada = fp.id
+left join public.miembros_equipo me  on me.id = fp.id_encargado
+left join public.ordenes_internas oi on oi.id = fp.id_oi
+left join public.hunting_zones hz    on hz.id = fp.id_hunting_zone
+where fp.activo
+group by fp.id, fp.numero_factura, fp.numero_normalizado, fp.proveedor_codigo,
+         fp.proveedor, fp.fecha_factura, fp.monto_estimado, fp.moneda,
+         me.nombre, oi.codigo_oi, hz.nombre;
+
+alter view public.v_conciliacion_facturas set (security_invoker = on);
+
+-- Vista del asistente de cruce. Es NUEVA a propósito: v_gastos_enriquecidos
+-- fue redefinida por la migración "vistas_ceco_efectivo", cuyo cuerpo no vive
+-- en este repo, y reescribirla desde acá revertiría el CeCo efectivo.
+create or replace view public.v_gastos_cruce as
+select
+  g.id,
+  g.id_carga,
+  c.id_lote,
+  g.fecha_documento,
+  g.fy,
+  g.factura,
+  g.proveedor,
+  g.proveedor_codigo,
+  g.texto_referencia,
+  g.monto_real,
+  g.estado_revision,
+  g.origen_hz,
+  g.metodo_cruce,
+  g.id_factura_preregistrada,
+  fp.numero_factura  as factura_preregistrada,
+  fp.numero_orden,
+  fp.monto_estimado,
+  fp.moneda,
+  g.id_encargado,
+  me.nombre          as encargado,
+  g.id_oi,
+  oi.codigo_oi,
+  g.id_hunting_zone,
+  hz.nombre          as hunting_zone,
+  g.fase,
+  g.motivo,
+  g.detalle,
+  g.revisado_at
+from public.gastos g
+left join public.cargas c                   on c.id  = g.id_carga
+left join public.facturas_preregistradas fp on fp.id = g.id_factura_preregistrada
+left join public.miembros_equipo me         on me.id = g.id_encargado
+left join public.ordenes_internas oi        on oi.id = g.id_oi
+left join public.hunting_zones hz           on hz.id = g.id_hunting_zone;
+
+alter view public.v_gastos_cruce set (security_invoker = on);
+
+-- Bootstrap: el primer administrador. Sin esto nadie puede entrar una vez que
+-- la app exige rol. Editar el correo si corresponde.
+insert into public.miembros_equipo (nombre, correo, rol)
+values ('Guillermo Sosa', 'gsosam99@gmail.com', 'admin')
+on conflict (correo) do nothing;

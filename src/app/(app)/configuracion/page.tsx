@@ -1,15 +1,20 @@
 import { PanelMaestras, type SeccionMaestra } from "@/components/maestras/PanelMaestras";
 import type { CampoMaestra, FilaMaestra } from "@/components/maestras/TablaMaestra";
+import { requireRol } from "@/lib/auth";
 import { fyEtiqueta } from "@/lib/fiscal";
+import { ETIQUETA_ROL, tienePermiso } from "@/lib/permisos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Configuración — IENN Gastos App" };
 export const dynamic = "force-dynamic";
 
 export default async function ConfiguracionPage() {
+  const { rol } = await requireRol();
   const supabase = await createSupabaseServerClient();
+  const puedeMaestras = tienePermiso(rol, "maestras:editar");
+  const puedeEquipo = tienePermiso(rol, "equipo:editar");
 
-  const [ois, hzs, cecos, anios] = await Promise.all([
+  const [ois, hzs, cecos, anios, equipo] = await Promise.all([
     supabase
       .from("ordenes_internas")
       .select(
@@ -22,6 +27,7 @@ export default async function ConfiguracionPage() {
       .order("orden_display"),
     supabase.from("cecos").select("id, codigo_sap, nombre, usa_proyectos, activo").order("codigo_sap"),
     supabase.from("anios_fiscales").select("id, fy, activo").order("fy", { ascending: false }),
+    supabase.from("miembros_equipo").select("id, nombre, correo, rol, activo").order("nombre"),
   ]);
 
   const opcionesCeco = ((cecos.data ?? []) as Array<{ id: string; codigo_sap: string }>).map(
@@ -88,13 +94,50 @@ export default async function ConfiguracionPage() {
     { clave: "activo", etiqueta: "Activo", tipo: "booleano", ancho: "w-20" },
   ];
 
-  const errorCarga = ois.error ?? hzs.error ?? cecos.error ?? anios.error ?? null;
+  const camposEquipo: CampoMaestra[] = [
+    { clave: "nombre", etiqueta: "Nombre", tipo: "texto", obligatorio: true },
+    { clave: "correo", etiqueta: "Correo", tipo: "texto", obligatorio: true },
+    {
+      clave: "rol",
+      etiqueta: "Rol en la app",
+      tipo: "select",
+      ancho: "w-40",
+      opciones: (["admin", "finanzas", "analista", "lector"] as const).map((r) => ({
+        valor: r,
+        etiqueta: ETIQUETA_ROL[r],
+      })),
+    },
+    { clave: "activo", etiqueta: "Activo", tipo: "booleano", ancho: "w-20" },
+  ];
+
+  const errorCarga =
+    ois.error ?? hzs.error ?? cecos.error ?? anios.error ?? equipo.error ?? null;
 
   const secciones: SeccionMaestra[] = [
+    {
+      id: "equipo",
+      titulo: "Equipo",
+      entidad: "miembros-equipo",
+      campos: camposEquipo,
+      filas: (equipo.data ?? []) as unknown as FilaMaestra[],
+      etiquetaAlta: "Nuevo miembro",
+      soloLectura: !puedeEquipo,
+      descripcion: (
+        <>
+          Encargados de facturas y usuarios de la app. El <strong>rol</strong> se aplica a
+          quien inicie sesión con ese mismo correo; sin rol, la persona puede ser
+          encargada de facturas pero no entra a la app. <strong>Administrador</strong>:
+          todo, incluido este equipo y las maestras. <strong>Finanzas</strong>: cargas
+          de SAP y presupuesto, aprueba solicitudes, ingresos. <strong>Analista</strong>:
+          facturas, triaje y crear solicitudes. <strong>Lector</strong>: solo consulta.
+        </>
+      ),
+    },
     {
       id: "anios-fiscales",
       titulo: "Años fiscales",
       entidad: "anios-fiscales",
+      soloLectura: !puedeMaestras,
       campos: camposAnios,
       filas: filasAnios as unknown as FilaMaestra[],
       etiquetaAlta: "Nuevo año fiscal",
@@ -110,6 +153,7 @@ export default async function ConfiguracionPage() {
       id: "ordenes-internas",
       titulo: "Órdenes internas",
       entidad: "ordenes-internas",
+      soloLectura: !puedeMaestras,
       campos: camposOi,
       filas: (ois.data ?? []) as unknown as FilaMaestra[],
       etiquetaAlta: "Nueva orden interna",
@@ -125,6 +169,7 @@ export default async function ConfiguracionPage() {
       id: "hunting-zones",
       titulo: "Hunting Zones",
       entidad: "hunting-zones",
+      soloLectura: !puedeMaestras,
       campos: camposHz,
       filas: (hzs.data ?? []) as unknown as FilaMaestra[],
       etiquetaAlta: "Nueva Hunting Zone",
@@ -141,6 +186,7 @@ export default async function ConfiguracionPage() {
       id: "cecos",
       titulo: "Centros de Costo",
       entidad: "cecos",
+      soloLectura: !puedeMaestras,
       campos: camposCeco,
       filas: (cecos.data ?? []) as unknown as FilaMaestra[],
       etiquetaAlta: "Nuevo Centro de Costo",

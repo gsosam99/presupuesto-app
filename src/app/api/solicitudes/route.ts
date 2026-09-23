@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requireApiUser } from "@/lib/auth";
+import { requireApiPermiso } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -57,7 +57,7 @@ const cuerpoSchema = z
 export async function POST(request: Request): Promise<Response> {
   try {
     const supabase = await createSupabaseServerClient();
-    const auth = await requireApiUser(supabase);
+    const auth = await requireApiPermiso(supabase, "solicitudes:crear");
     if ("response" in auth) return auth.response;
 
     const parsed = cuerpoSchema.safeParse(await request.json());

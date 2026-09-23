@@ -26,11 +26,13 @@ interface Props {
   filas: FilaIngreso[];
   huntingZones: OpcionHz[];
   sugerencias: SugerenciasIngreso;
+  /** El rol no puede editar ingresos: sin botones de edición ni borrado. */
+  soloLectura?: boolean;
 }
 
 type Parche = Partial<Omit<FilaIngreso, "id">>;
 
-export function TablaIngresos({ filas, huntingZones, sugerencias }: Props) {
+export function TablaIngresos({ filas, huntingZones, sugerencias, soloLectura = false }: Props) {
   const router = useRouter();
 
   const [editando, setEditando] = useState<string | null>(null);
@@ -193,21 +195,25 @@ export function TablaIngresos({ filas, huntingZones, sugerencias }: Props) {
                     <td>{f.detalle ?? "—"}</td>
                     <td className="r">{moneda.format(f.monto)}</td>
                     <td className="whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => abrirEdicion(f)}
-                        className="mr-3 font-semibold text-[var(--blue)] hover:underline"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        type="button"
-                        disabled={ocupado === f.id}
-                        onClick={() => void borrar(f)}
-                        className="text-[var(--bad)] hover:underline disabled:opacity-50"
-                      >
-                        Borrar
-                      </button>
+                      {!soloLectura && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => abrirEdicion(f)}
+                            className="mr-3 font-semibold text-[var(--blue)] hover:underline"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={ocupado === f.id}
+                            onClick={() => void borrar(f)}
+                            className="text-[var(--bad)] hover:underline disabled:opacity-50"
+                          >
+                            Borrar
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 );

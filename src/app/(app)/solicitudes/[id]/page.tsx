@@ -2,8 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { AccionesSolicitud } from "@/components/solicitudes/AccionesSolicitud";
+import { obtenerRol } from "@/lib/auth";
 import { etiquetaTrimestre, fyEtiqueta, nombreMes, trimestreDeMes } from "@/lib/fiscal";
 import { moneda } from "@/lib/format";
+import { tienePermiso } from "@/lib/permisos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { EstadoSolicitud, TipoSolicitud } from "@/types";
 
@@ -28,6 +30,7 @@ export default async function SolicitudPage({
 }) {
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
+  const rol = await obtenerRol();
 
   const { data: solicitud, error: errorSolicitud } = await supabase
     .from("solicitudes")
@@ -201,6 +204,8 @@ export default async function SolicitudPage({
             tipo={tipo}
             estado={estado}
             referenciaActual={(solicitud.referencia_aprobacion as string | null) ?? null}
+            puedeGestionar={tienePermiso(rol, "solicitudes:crear")}
+            puedeResolver={tienePermiso(rol, "solicitudes:resolver")}
           />
         </aside>
       </div>

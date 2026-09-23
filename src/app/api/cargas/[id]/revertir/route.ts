@@ -1,4 +1,4 @@
-import { requireApiUser } from "@/lib/auth";
+import { requireApiPermiso } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -67,7 +67,7 @@ export async function GET(
   try {
     const { id } = await params;
     const supabase = await createSupabaseServerClient();
-    const auth = await requireApiUser(supabase);
+    const auth = await requireApiPermiso(supabase, "cargas:sap");
     if ("response" in auth) return auth.response;
 
     const carga = await buscarCarga(supabase, id);
@@ -87,7 +87,7 @@ export async function POST(
   try {
     const { id } = await params;
     const supabase = await createSupabaseServerClient();
-    const auth = await requireApiUser(supabase);
+    const auth = await requireApiPermiso(supabase, "cargas:sap");
     if ("response" in auth) return auth.response;
 
     const cuerpo = (await request.json().catch(() => ({}))) as {

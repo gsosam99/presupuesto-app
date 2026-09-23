@@ -43,6 +43,8 @@ interface Props {
   asignaciones: OpcionAsignacion[];
   sugerencias: Sugerencias;
   totalPendientes: number;
+  /** El rol no puede editar el triaje: se ve la grilla, sin edición ni acciones. */
+  soloLectura?: boolean;
 }
 
 interface Borrador {
@@ -139,6 +141,7 @@ export function TablaTriaje({
   asignaciones,
   sugerencias,
   totalPendientes,
+  soloLectura = false,
 }: Props) {
   const router = useRouter();
 
@@ -431,6 +434,7 @@ export function TablaTriaje({
               <th className="w-9 px-2 py-1.5">
                 <input
                   type="checkbox"
+                  disabled={soloLectura}
                   aria-label="Seleccionar todos"
                   checked={todosMarcados}
                   onChange={alternarTodos}
@@ -481,7 +485,7 @@ export function TablaTriaje({
           <tbody className="divide-y divide-slate-100">
             {enPagina.map((g, i) => {
               const b = borradorDe(g);
-              const bloqueada = enProceso.has(g.id);
+              const bloqueada = soloLectura || enProceso.has(g.id);
               const marcada = seleccion.has(g.id);
 
               return (
@@ -495,6 +499,7 @@ export function TablaTriaje({
                   <td className="px-2 py-1.5 align-middle">
                     <input
                       type="checkbox"
+                      disabled={soloLectura}
                       aria-label={`Seleccionar gasto del ${g.fecha_documento}`}
                       checked={marcada}
                       onChange={() => alternar(g.id)}

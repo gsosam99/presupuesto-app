@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import { requireApiUser } from "@/lib/auth";
+import { requireApiPermiso } from "@/lib/auth";
+import type { Permiso } from "@/lib/permisos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -11,7 +12,7 @@ export const runtime = "nodejs";
  * Cada entidad declara qué columnas se pueden escribir: así la ruta es genérica
  * sin volverse un pasamanos que deje modificar cualquier campo.
  */
-const ENTIDADES: Record<string, { tabla: string; campos: string[] }> = {
+const ENTIDADES: Record<string, { tabla: string; campos: string[]; permiso?: Permiso }> = {
   "ordenes-internas": {
     tabla: "ordenes_internas",
     campos: [
@@ -43,6 +44,13 @@ const ENTIDADES: Record<string, { tabla: string; campos: string[] }> = {
     tabla: "anios_fiscales",
     campos: ["fy", "activo"],
   },
+  // Es a la vez el catálogo de encargados y la tabla de usuarios: asignar un
+  // rol es dar acceso, por eso tiene su propio permiso.
+  "miembros-equipo": {
+    tabla: "miembros_equipo",
+    campos: ["nombre", "correo", "rol", "activo"],
+    permiso: "equipo:editar",
+  },
 };
 
 type Registro = Record<string, string | number | boolean | null>;
@@ -57,6 +65,10 @@ function limpiar(cuerpo: Registro, campos: string[]): Registro {
     if (!(campo in cuerpo)) continue;
     const valor = cuerpo[campo];
     salida[campo] = typeof valor === "string" && valor.trim() === "" ? null : valor;
+    // El enlace con la sesión es por correo: se guarda normalizado.
+    if (campo === "correo" && typeof salida[campo] === "string") {
+      salida[campo] = (salida[campo] as string).trim().toLowerCase();
+    }
   }
   return salida;
 }
@@ -71,7 +83,7 @@ export async function POST(
     if (!config) return Response.json({ error: "Entidad desconocida" }, { status: 404 });
 
     const supabase = await createSupabaseServerClient();
-    const auth = await requireApiUser(supabase);
+    const auth = await requireApiPermiso(supabase, config.permiso ?? "maestras:editar");
     if ("response" in auth) return auth.response;
 
     const parsed = registroSchema.safeParse(await request.json());
@@ -106,7 +118,7 @@ export async function PATCH(
     if (!config) return Response.json({ error: "Entidad desconocida" }, { status: 404 });
 
     const supabase = await createSupabaseServerClient();
-    const auth = await requireApiUser(supabase);
+    const auth = await requireApiPermiso(supabase, config.permiso ?? "maestras:editar");
     if ("response" in auth) return auth.response;
 
     const parsed = registroSchema.safeParse(await request.json());

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requireApiUser } from "@/lib/auth";
+import { requireApiPermiso } from "@/lib/auth";
 import { escaparPatronIlike, resolverOiPorCodigo } from "@/lib/presupuesto/resolverOi";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -38,7 +38,7 @@ function limpiar(valor: string | null | undefined): string | null {
 export async function PATCH(request: Request): Promise<Response> {
   try {
     const supabase = await createSupabaseServerClient();
-    const auth = await requireApiUser(supabase);
+    const auth = await requireApiPermiso(supabase, "triaje:editar");
     if ("response" in auth) return auth.response;
 
     const parsed = cuerpoSchema.safeParse(await request.json());

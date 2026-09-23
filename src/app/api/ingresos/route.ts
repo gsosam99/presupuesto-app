@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requireApiUser } from "@/lib/auth";
+import { requireApiPermiso } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -33,7 +33,7 @@ function limpiar(valor: string | null | undefined): string | null | undefined {
 export async function POST(request: Request): Promise<Response> {
   try {
     const supabase = await createSupabaseServerClient();
-    const auth = await requireApiUser(supabase);
+    const auth = await requireApiPermiso(supabase, "ingresos:editar");
     if ("response" in auth) return auth.response;
 
     const parsed = cuerpoSchema.safeParse(await request.json());
@@ -78,7 +78,7 @@ export async function POST(request: Request): Promise<Response> {
 export async function PATCH(request: Request): Promise<Response> {
   try {
     const supabase = await createSupabaseServerClient();
-    const auth = await requireApiUser(supabase);
+    const auth = await requireApiPermiso(supabase, "ingresos:editar");
     if ("response" in auth) return auth.response;
 
     const parsed = parcheSchema.safeParse(await request.json());
@@ -141,7 +141,7 @@ export async function PATCH(request: Request): Promise<Response> {
 export async function DELETE(request: Request): Promise<Response> {
   try {
     const supabase = await createSupabaseServerClient();
-    const auth = await requireApiUser(supabase);
+    const auth = await requireApiPermiso(supabase, "ingresos:editar");
     if ("response" in auth) return auth.response;
 
     const id = new URL(request.url).searchParams.get("id");

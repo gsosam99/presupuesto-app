@@ -12,9 +12,20 @@ interface Props {
   tipo: TipoSolicitud;
   estado: EstadoSolicitud;
   referenciaActual: string | null;
+  /** Enviar y devolver a borrador (solicitudes:crear). */
+  puedeGestionar: boolean;
+  /** Aprobar, rechazar y revertir la aprobación (solicitudes:resolver). */
+  puedeResolver: boolean;
 }
 
-export function AccionesSolicitud({ id, tipo, estado, referenciaActual }: Props) {
+export function AccionesSolicitud({
+  id,
+  tipo,
+  estado,
+  referenciaActual,
+  puedeGestionar,
+  puedeResolver,
+}: Props) {
   const router = useRouter();
   const [enProceso, setEnProceso] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,72 +72,78 @@ export function AccionesSolicitud({ id, tipo, estado, referenciaActual }: Props)
         </a>
       )}
 
-      {estado === "borrador" && (
+      {estado === "borrador" && puedeGestionar && (
         <div className="mt-4">
           <Button type="button" disabled={enProceso} onClick={() => void cambiar("enviada")}>
             Marcar como enviada
           </Button>
-          <p className={AYUDA}>
-            Congela la solicitud mientras Charles y finanzas la revisan.
-          </p>
+          <p className={AYUDA}>Congela la solicitud mientras Charles y finanzas la revisan.</p>
         </div>
       )}
 
-      {estado === "enviada" && (
+      {estado === "enviada" && (puedeResolver || puedeGestionar) && (
         <div className="mt-4 space-y-3">
-          <div>
-            <label htmlFor="referencia" className={ETIQUETA}>
-              Referencia de la aprobación
-            </label>
-            <input
-              id="referencia"
-              value={referencia}
-              onChange={(e) => setReferencia(e.target.value)}
-              placeholder="Correo, número de trámite…"
-              className={`mt-1 ${CONTROL}`}
-            />
-            <p className={AYUDA}>
-              Queda como respaldo de quién aprobó fuera de la app.
-            </p>
-          </div>
+          {puedeResolver && (
+            <>
+              <div>
+                <label htmlFor="referencia" className={ETIQUETA}>
+                  Referencia de la aprobación
+                </label>
+                <input
+                  id="referencia"
+                  value={referencia}
+                  onChange={(e) => setReferencia(e.target.value)}
+                  placeholder="Correo, número de trámite…"
+                  className={`mt-1 ${CONTROL}`}
+                />
+                <p className={AYUDA}>Queda como respaldo de quién aprobó fuera de la app.</p>
+              </div>
 
-          <div>
-            <label htmlFor="nota" className={ETIQUETA}>
-              Nota
-            </label>
-            <input
-              id="nota"
-              value={nota}
-              onChange={(e) => setNota(e.target.value)}
-              className={`mt-1 ${CONTROL}`}
-            />
-          </div>
+              <div>
+                <label htmlFor="nota" className={ETIQUETA}>
+                  Nota
+                </label>
+                <input
+                  id="nota"
+                  value={nota}
+                  onChange={(e) => setNota(e.target.value)}
+                  className={`mt-1 ${CONTROL}`}
+                />
+              </div>
+            </>
+          )}
 
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={enProceso}
-              onClick={() => void cambiar("aprobada")}
-              className="rounded-md bg-[var(--ok)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
-            >
-              Aprobar y cargar al presupuesto
-            </button>
-            <button
-              type="button"
-              disabled={enProceso}
-              onClick={() => void cambiar("rechazada")}
-              className="rounded-md bg-[var(--bad)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
-            >
-              Rechazar
-            </button>
-            <Button
-              type="button"
-              variante="secundario"
-              disabled={enProceso}
-              onClick={() => void cambiar("borrador")}
-            >
-              Volver a borrador
-            </Button>
+            {puedeResolver && (
+              <>
+                <button
+                  type="button"
+                  disabled={enProceso}
+                  onClick={() => void cambiar("aprobada")}
+                  className="rounded-md bg-[var(--ok)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  Aprobar y cargar al presupuesto
+                </button>
+                <button
+                  type="button"
+                  disabled={enProceso}
+                  onClick={() => void cambiar("rechazada")}
+                  className="rounded-md bg-[var(--bad)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  Rechazar
+                </button>
+              </>
+            )}
+            {puedeGestionar && (
+              <Button
+                type="button"
+                variante="secundario"
+                disabled={enProceso}
+                onClick={() => void cambiar("borrador")}
+              >
+                Volver a borrador
+              </Button>
+            )}
           </div>
         </div>
       )}
@@ -138,24 +155,28 @@ export function AccionesSolicitud({ id, tipo, estado, referenciaActual }: Props)
               ? "Aprobada: sus líneas ya están cargadas como extra plan y suman a los fondos disponibles."
               : "Aprobada: el sobrante de ese trimestre se arrastra al siguiente."}
           </p>
-          <Button
-            type="button"
-            variante="secundario"
-            className="mt-3"
-            disabled={enProceso}
-            onClick={() => void cambiar("enviada")}
-          >
-            Revertir aprobación
-          </Button>
-          <p className={AYUDA}>
-            {tipo === "extra_plan"
-              ? "Descarta del presupuesto las líneas que había cargado."
-              : "El sobrante vuelve a perderse."}
-          </p>
+          {puedeResolver && (
+            <>
+              <Button
+                type="button"
+                variante="secundario"
+                className="mt-3"
+                disabled={enProceso}
+                onClick={() => void cambiar("enviada")}
+              >
+                Revertir aprobación
+              </Button>
+              <p className={AYUDA}>
+                {tipo === "extra_plan"
+                  ? "Descarta del presupuesto las líneas que había cargado."
+                  : "El sobrante vuelve a perderse."}
+              </p>
+            </>
+          )}
         </div>
       )}
 
-      {estado === "rechazada" && (
+      {estado === "rechazada" && puedeGestionar && (
         <Button
           type="button"
           variante="secundario"

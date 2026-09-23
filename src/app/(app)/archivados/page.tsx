@@ -2,8 +2,10 @@ import {
   TablaArchivados,
   type GastoArchivado,
 } from "@/components/archivados/TablaArchivados";
+import { obtenerRol } from "@/lib/auth";
 import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { moneda } from "@/lib/format";
+import { tienePermiso } from "@/lib/permisos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Archivados — IENN Gastos App" };
@@ -11,6 +13,7 @@ export const dynamic = "force-dynamic";
 
 export default async function ArchivadosPage() {
   const supabase = await createSupabaseServerClient();
+  const puedeEditar = tienePermiso(await obtenerRol(), "triaje:editar");
   const fy = await obtenerFySeleccionado();
 
   const { data, error } = await supabase
@@ -57,7 +60,7 @@ export default async function ArchivadosPage() {
       )}
 
       <section className="mt-8">
-        <TablaArchivados gastos={gastos} />
+        <TablaArchivados gastos={gastos} soloLectura={!puedeEditar} />
       </section>
     </main>
   );

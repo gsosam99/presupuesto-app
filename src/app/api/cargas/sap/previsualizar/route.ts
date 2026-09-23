@@ -1,4 +1,4 @@
-import { requireApiUser } from "@/lib/auth";
+import { requireApiPermiso } from "@/lib/auth";
 import { previsualizarArchivos, type ArchivoPrevio } from "@/lib/ingesta/previsualizacion";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -16,7 +16,7 @@ const MAX_BYTES = 25 * 1024 * 1024;
 export async function POST(request: Request): Promise<Response> {
   try {
     const supabase = await createSupabaseServerClient();
-    const auth = await requireApiUser(supabase);
+    const auth = await requireApiPermiso(supabase, "cargas:sap");
     if ("response" in auth) return auth.response;
 
     const formData = await request.formData();

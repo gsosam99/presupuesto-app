@@ -4,8 +4,10 @@ import {
   type OpcionAsignacion,
   type Sugerencias,
 } from "@/components/triaje/TablaTriaje";
+import { obtenerRol } from "@/lib/auth";
 import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { moneda } from "@/lib/format";
+import { tienePermiso } from "@/lib/permisos";
 import { obtenerOrdenesInternasActivas } from "@/lib/presupuesto/ordenesInternas";
 import { etiquetaVigencia, vigenteEnFecha } from "@/lib/presupuesto/vigencia";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -19,6 +21,7 @@ const TAMANO_LOTE = 500;
 export default async function TriajePage() {
   const supabase = await createSupabaseServerClient();
   const fy = await obtenerFySeleccionado();
+  const puedeEditar = tienePermiso(await obtenerRol(), "triaje:editar");
 
   const [pendientes, conteo, ois, tags, hzs, valores] = await Promise.all([
     supabase
@@ -149,6 +152,7 @@ export default async function TriajePage() {
           asignaciones={asignaciones}
           sugerencias={sugerencias}
           totalPendientes={totalPendientes}
+          soloLectura={!puedeEditar}
         />
       </section>
     </main>
