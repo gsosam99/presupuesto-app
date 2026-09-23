@@ -15,8 +15,9 @@ export interface YaCargado {
  * FormData con `archivo` (+ campos extra opcionales) y `forzar`, 409 con
  * `yaCargado` si el archivo ya se procesó antes, `{ resumen }` si no.
  *
- * SubidaSap.tsx no usa este hook: sube varios archivos en un solo POST y
- * recibe una respuesta agregada, un protocolo distinto.
+ * El asistente de carga SAP (triaje/asistente/AsistenteCarga.tsx) no usa este
+ * hook: sube varios archivos en un solo POST y recibe una respuesta agregada,
+ * un protocolo distinto.
  */
 export function useCargaArchivo<TResumen>(endpoint: string) {
   const router = useRouter();

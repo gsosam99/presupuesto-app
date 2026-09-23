@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { requireApiPermiso } from "@/lib/auth";
 import { ingestarSap, type FiltroCarga, type ResumenIngesta } from "@/lib/ingesta/sap";
@@ -44,6 +44,9 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ error: "No se recibió ningún archivo" }, { status: 400 });
     }
 
+    // Un lote por envío: los reportes de CeCo y de OI subidos juntos se
+    // revisan juntos en el asistente de Triaje.
+    const idLote = randomUUID();
     const resumenes: ResumenIngesta[] = [];
     const errores: Array<{ archivo: string; motivo: string }> = [];
     const yaCargados: Array<{ archivo: string; cargadoEl: string }> = [];
@@ -96,6 +99,7 @@ export async function POST(request: Request): Promise<Response> {
             hashArchivo: hash,
             idUsuario: auth.user.id,
             filtro,
+            idLote,
           }),
         );
       } catch (e) {
@@ -106,7 +110,12 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
-    return Response.json({ resumenes, errores, yaCargados });
+    return Response.json({
+      idLote: resumenes.length > 0 ? idLote : null,
+      resumenes,
+      errores,
+      yaCargados,
+    });
   } catch (error) {
     console.error("[POST /api/cargas/sap]", error);
     return Response.json({ error: "Error interno al procesar la carga" }, { status: 500 });

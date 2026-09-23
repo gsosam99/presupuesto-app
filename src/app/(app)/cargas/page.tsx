@@ -1,10 +1,12 @@
+import Link from "next/link";
+
 import { BotonRevertir } from "@/components/cargas/BotonRevertir";
-import { SubidaSap } from "@/components/cargas/SubidaSap";
+import { PestanasTriaje } from "@/components/triaje/PestanasTriaje";
 import { obtenerRol } from "@/lib/auth";
 import { tienePermiso } from "@/lib/permisos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export const metadata = { title: "Cargas — IENN Gastos App" };
+export const metadata = { title: "Historial de cargas — IENN Gastos App" };
 export const dynamic = "force-dynamic";
 
 interface FilaCarga {
@@ -18,6 +20,7 @@ interface FilaCarga {
   filas_rechazadas: number;
   mensaje: string | null;
   created_at: string;
+  id_lote: string | null;
 }
 
 const ETIQUETA_TIPO: Record<string, string> = {
@@ -35,36 +38,35 @@ export default async function CargasPage() {
   const { data, error } = await supabase
     .from("cargas")
     .select(
-      "id, tipo, nombre_archivo, estado, filas_leidas, filas_insertadas, filas_duplicadas, filas_rechazadas, mensaje, created_at",
+      "id, tipo, nombre_archivo, estado, filas_leidas, filas_insertadas, filas_duplicadas, filas_rechazadas, mensaje, created_at, id_lote",
     )
     .order("created_at", { ascending: false })
-    .limit(15);
+    .limit(30);
 
   const cargas = (data ?? []) as unknown as FilaCarga[];
 
   return (
     <main className="mx-auto w-full max-w-6xl px-6 py-10">
       <header>
-        <h1 className="text-2xl font-semibold text-slate-900">Carga de reportes SAP</h1>
+        <h1 className="text-2xl font-semibold text-slate-900">Historial de cargas</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-600">
-          Arrastra los exportables mensuales de SAP (Centro de Costo y Orden Interna). El
-          sistema descarta los subtotales, cruza las órdenes internas contra las maestras,
-          infiere la Hunting Zone de los gastos huérfanos con las etiquetas del texto y
-          predice Fase, Motivo y Detalle a partir del histórico.
+          Todas las cargas de reportes SAP, presupuesto y facturas. Las cargas SAP hechas con el
+          asistente abren su cruce: qué cruzó con las facturas, qué se asoció a mano y qué quedó
+          pendiente. Para cargar un reporte nuevo, usa{" "}
+          {puedeCargar ? (
+            <Link href="/triaje/carga" className="font-semibold underline">
+              Nueva carga SAP
+            </Link>
+          ) : (
+            "Nueva carga SAP"
+          )}
+          .
         </p>
       </header>
 
-      {puedeCargar && (
-        <section className="mt-8">
-          <SubidaSap />
-        </section>
-      )}
+      <PestanasTriaje activa="/cargas" puedeCargar={puedeCargar} />
 
-      <section className="mt-12">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Cargas recientes
-        </h2>
-
+      <section className="mt-8">
         {error && (
           <p className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
             No se pudo leer el historial: {error.message}
@@ -103,14 +105,10 @@ export default async function CargasPage() {
                         </span>
                       )}
                       {c.mensaje && (
-                        <span className="mt-0.5 block text-xs text-amber-700">
-                          {c.mensaje}
-                        </span>
+                        <span className="mt-0.5 block text-xs text-amber-700">{c.mensaje}</span>
                       )}
                     </td>
-                    <td className="px-4 py-2 text-slate-600">
-                      {ETIQUETA_TIPO[c.tipo] ?? c.tipo}
-                    </td>
+                    <td className="px-4 py-2 text-slate-600">{ETIQUETA_TIPO[c.tipo] ?? c.tipo}</td>
                     <td className="px-4 py-2 text-right tabular-nums text-slate-600">
                       {c.filas_leidas}
                     </td>
@@ -129,12 +127,17 @@ export default async function CargasPage() {
                         timeStyle: "short",
                       })}
                     </td>
-                    <td className="px-4 py-2 text-right">
+                    <td className="whitespace-nowrap px-4 py-2 text-right">
+                      {c.id_lote && (
+                        <Link
+                          href={`/triaje/lote/${c.id_lote}?paso=6`}
+                          className="mr-3 text-sm font-semibold text-slate-900 underline"
+                        >
+                          Ver cruce
+                        </Link>
+                      )}
                       {puedeCargar && c.estado === "completada" && c.filas_insertadas > 0 && (
-                        <BotonRevertir
-                          idCarga={c.id}
-                          nombreArchivo={c.nombre_archivo}
-                        />
+                        <BotonRevertir idCarga={c.id} nombreArchivo={c.nombre_archivo} />
                       )}
                     </td>
                   </tr>

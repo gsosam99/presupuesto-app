@@ -1240,7 +1240,12 @@ set metodo_cruce = 'automatico'
 where id_factura_preregistrada is not null and metodo_cruce is null;
 
 -- Lote de carga -------------------------------------------------------------
-alter table public.cargas add column if not exists id_lote uuid;
+-- resumen guarda el ResumenIngesta de src/lib/ingesta/sap.ts (montos, cuadre
+-- contra SAP, filas fuera de rango): el paso "Resumen" del asistente se puede
+-- abrir días después y tiene que mostrar lo mismo que al terminar la carga.
+alter table public.cargas
+  add column if not exists id_lote uuid,
+  add column if not exists resumen jsonb;
 create index if not exists idx_cargas_lote on public.cargas(id_lote);
 
 -- Conciliación: columnas nuevas SOLO al final (42P16) -----------------------
@@ -1297,9 +1302,16 @@ select
   g.fecha_documento,
   g.fy,
   g.factura,
+  g.factura_normalizada,
   g.proveedor,
   g.proveedor_codigo,
   g.texto_referencia,
+  g.grupo_clase_coste,
+  g.ceco_codigo_raw,
+  g.oi_codigo_raw,
+  -- CeCo efectivo: el imputado por SAP o, si la OI es real, el del padre.
+  coalesce(cg.codigo_sap, coi.codigo_sap) as ceco_codigo,
+  g.nota,
   g.monto_real,
   g.estado_revision,
   g.origen_hz,
@@ -1324,7 +1336,9 @@ left join public.cargas c                   on c.id  = g.id_carga
 left join public.facturas_preregistradas fp on fp.id = g.id_factura_preregistrada
 left join public.miembros_equipo me         on me.id = g.id_encargado
 left join public.ordenes_internas oi        on oi.id = g.id_oi
-left join public.hunting_zones hz           on hz.id = g.id_hunting_zone;
+left join public.hunting_zones hz           on hz.id = g.id_hunting_zone
+left join public.cecos cg                   on cg.id = g.id_ceco
+left join public.cecos coi                  on coi.id = oi.id_ceco;
 
 alter view public.v_gastos_cruce set (security_invoker = on);
 

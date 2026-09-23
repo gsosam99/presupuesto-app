@@ -25,6 +25,7 @@ export interface GastoPendiente {
   motivo: string | null;
   detalle: string | null;
   nota: string | null;
+  id_encargado: string | null;
 }
 
 export interface OpcionAsignacion {
@@ -45,6 +46,8 @@ interface Props {
   totalPendientes: number;
   /** El rol no puede editar el triaje: se ve la grilla, sin edición ni acciones. */
   soloLectura?: boolean;
+  /** Miembros del equipo: el encargado responde por el gasto. */
+  encargados: Array<{ id: string; etiqueta: string }>;
 }
 
 interface Borrador {
@@ -53,6 +56,7 @@ interface Borrador {
   motivo: string;
   detalle: string;
   nota: string;
+  encargado: string;
 }
 
 type Columna =
@@ -66,6 +70,7 @@ type Columna =
   | "fase"
   | "motivo"
   | "detalle"
+  | "encargado"
   | "nota";
 
 const POR_PAGINA = [25, 50, 100, 250] as const;
@@ -95,6 +100,8 @@ function valorColumna(g: GastoPendiente, c: Columna): string | number {
       return g.detalle ?? "";
     case "nota":
       return g.nota ?? "";
+    case "encargado":
+      return g.id_encargado ?? "";
     default:
       return g.fecha_documento;
   }
@@ -142,6 +149,7 @@ export function TablaTriaje({
   sugerencias,
   totalPendientes,
   soloLectura = false,
+  encargados,
 }: Props) {
   const router = useRouter();
 
@@ -236,6 +244,7 @@ export function TablaTriaje({
         motivo: g.motivo ?? "",
         detalle: g.detalle ?? "",
         nota: g.nota ?? "",
+        encargado: g.id_encargado ?? "",
       },
     [borradores],
   );
@@ -248,6 +257,7 @@ export function TablaTriaje({
         motivo: "",
         detalle: "",
         nota: "",
+        encargado: "",
       };
       return { ...prev, [id]: { ...actual, [campo]: valor } };
     });
@@ -292,6 +302,7 @@ export function TablaTriaje({
                   motivo: b.motivo,
                   detalle: b.detalle,
                   nota: b.nota,
+                  id_encargado: b.encargado || null,
                 }
               : {}),
           }),
@@ -428,7 +439,7 @@ export function TablaTriaje({
       <ListaSugerencias id="sugerencias-detalle" sugerencias={sugerencias.detalle} />
 
       <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="w-full min-w-[104rem] text-xs">
+        <table className="w-full min-w-[114rem] text-xs">
           <thead>
             <tr className="border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-slate-500">
               <th className="w-9 px-2 py-1.5">
@@ -476,6 +487,9 @@ export function TablaTriaje({
               </Th>
               <Th columna="detalle" orden={orden} onOrdenar={ordenarPor} ancho="w-40">
                 Detalle
+              </Th>
+              <Th columna="encargado" orden={orden} onOrdenar={ordenarPor} ancho="w-40">
+                Encargado
               </Th>
               <Th columna="nota" orden={orden} onOrdenar={ordenarPor} ancho="w-44">
                 Nota
@@ -591,6 +605,24 @@ export function TablaTriaje({
                       onKeyDown={(e) => manejarTecla(e, g, i)}
                       className={CELDA}
                     />
+                  </td>
+
+                  <td className="px-2 py-1.5">
+                    <select
+                      disabled={bloqueada}
+                      value={b.encargado}
+                      aria-label="Encargado"
+                      onChange={(e) => editar(g.id, "encargado", e.target.value)}
+                      onKeyDown={(e) => manejarTecla(e, g, i)}
+                      className={CELDA}
+                    >
+                      <option value="">—</option>
+                      {encargados.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.etiqueta}
+                        </option>
+                      ))}
+                    </select>
                   </td>
 
                   <td className="px-2 py-1.5">

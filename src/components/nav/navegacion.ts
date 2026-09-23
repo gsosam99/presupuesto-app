@@ -1,10 +1,11 @@
 /**
  * Estructura de la navegación principal, agrupada por flujo de uso real:
  *
- *   Gastos: Facturas (pre-registro continuo) → Cargas (el disparador mensual:
- *   carga el reporte de SAP y cruza contra lo pre-registrado) → Triaje
- *   (completa lo que quedó sin resolver tras la carga) → Archivados (papelera,
- *   la más pasiva).
+ *   Gastos: Facturas (pre-registro continuo) → Triaje y cruce SAP (el
+ *   disparador mensual: el asistente carga el reporte de SAP, cruza contra lo
+ *   pre-registrado, resuelve a mano lo que no cruzó y completa las rezagadas)
+ *   → Historial de cargas (auditoría y reversión) → Archivados (papelera, la
+ *   más pasiva).
  *
  *   Presupuesto: Presupuestos (la data base) → Fondos (vista derivada de lo
  *   disponible — y el origen real de los links "Pedir prórroga"/"Solicitar
@@ -54,8 +55,8 @@ export const NAVEGACION: GrupoNav[] = [
     titulo: "Gastos",
     items: [
       { href: "/facturas", etiqueta: "Facturas", icono: FileText },
-      { href: "/cargas", etiqueta: "Cargas", icono: Upload },
-      { href: "/triaje", etiqueta: "Triaje", icono: ListChecks },
+      { href: "/triaje", etiqueta: "Triaje y cruce SAP", icono: ListChecks },
+      { href: "/cargas", etiqueta: "Historial de cargas", icono: Upload },
       { href: "/archivados", etiqueta: "Archivados", icono: Archive },
     ],
   },

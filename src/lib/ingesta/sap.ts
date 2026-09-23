@@ -29,7 +29,7 @@ import {
 } from "@/lib/ingesta/duplicados";
 import { claveComparacion, normalizarNumeroFactura } from "@/lib/sap/normalizar";
 import type { FilaSap, LayoutSap, RechazoSap, ResultadoSap } from "@/lib/sap/parser";
-import type { Database } from "@/types/supabase";
+import type { Database, Json } from "@/types/supabase";
 import type { EstadoRevision, MetodoCruce, OrigenAsignacion, TipoCarga } from "@/types";
 
 type Cliente = SupabaseClient<Database>;
@@ -254,6 +254,8 @@ export interface OpcionesIngesta {
   hashArchivo: string;
   idUsuario: string | null;
   filtro?: FiltroCarga;
+  /** Agrupa los archivos subidos juntos en el asistente de Triaje. */
+  idLote?: string | null;
 }
 
 export interface RegistroGasto {
@@ -439,6 +441,7 @@ export async function ingestarSap(
       estado: "procesando",
       filas_leidas: parseado.filasLeidas,
       id_usuario: opciones.idUsuario,
+      id_lote: opciones.idLote ?? null,
     })
     .select("id")
     .single();
@@ -524,19 +527,7 @@ export async function ingestarSap(
     );
   }
 
-  await cliente
-    .from("cargas")
-    .update({
-      estado: "completada",
-      filas_insertadas: insertadas,
-      filas_duplicadas: duplicadas,
-      filas_rechazadas: rechazos.length,
-      mensaje: avisos.length > 0 ? avisos.join(" · ") : null,
-      finalizada_at: new Date().toISOString(),
-    })
-    .eq("id", idCarga);
-
-  return {
+  const resumen: ResumenIngesta = {
     idCarga,
     nombreArchivo: opciones.nombreArchivo,
     layout: parseado.layout,
@@ -565,4 +556,21 @@ export async function ingestarSap(
     omitidasPorProbable,
     oisDesconocidas,
   };
+
+  await cliente
+    .from("cargas")
+    .update({
+      estado: "completada",
+      filas_insertadas: insertadas,
+      filas_duplicadas: duplicadas,
+      filas_rechazadas: rechazos.length,
+      mensaje: avisos.length > 0 ? avisos.join(" · ") : null,
+      finalizada_at: new Date().toISOString(),
+      // El resumen queda guardado: el paso "Resumen" del asistente se puede
+      // abrir días después de la carga.
+      resumen: resumen as unknown as Json,
+    })
+    .eq("id", idCarga);
+
+  return resumen;
 }

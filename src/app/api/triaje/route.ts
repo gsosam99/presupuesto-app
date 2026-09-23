@@ -19,6 +19,8 @@ const cuerpoSchema = z.object({
   detalle: z.string().nullable().optional(),
   nota: z.string().nullable().optional(),
   id_factura_preregistrada: z.string().nullable().optional(),
+  /** Encargado del gasto (miembro del equipo). null lo quita. */
+  id_encargado: z.string().uuid().nullable().optional(),
   /** Si es false, guarda los cambios pero deja el gasto pendiente. */
   aprobar: z.boolean().optional(),
 });
@@ -182,6 +184,12 @@ export async function PATCH(request: Request): Promise<Response> {
     if (limpiar(cuerpo.motivo)) cambios.motivo = limpiar(cuerpo.motivo);
     if (limpiar(cuerpo.detalle)) cambios.detalle = limpiar(cuerpo.detalle);
     if (cuerpo.nota !== undefined) cambios.nota = limpiar(cuerpo.nota);
+    // El encargado explícito manda; si viene vacío junto con una factura, se
+    // conserva el que la factura trae.
+    if (cuerpo.id_encargado) cambios.id_encargado = cuerpo.id_encargado;
+    else if (cuerpo.id_encargado === null && !cuerpo.id_factura_preregistrada) {
+      cambios.id_encargado = null;
+    }
 
     const aprobar = cuerpo.aprobar !== false;
 

@@ -355,6 +355,7 @@ interface CargasRow {
   revertida_at: string | null;
   revertida_por: string | null;
   id_lote: string | null;
+  resumen: Json | null;
 }
 interface CargasInsert {
   id?: string;
@@ -373,6 +374,7 @@ interface CargasInsert {
   revertida_at?: string | null;
   revertida_por?: string | null;
   id_lote?: string | null;
+  resumen?: Json | null;
 }
 
 // ---------------------------------------------------------------------------
