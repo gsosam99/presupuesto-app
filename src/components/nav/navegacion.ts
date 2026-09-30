@@ -8,8 +8,9 @@
  *   más pasiva).
  *
  *   Presupuesto: Presupuestos (la data base) → Fondos (vista derivada de lo
- *   disponible — y el origen real de los links "Pedir prórroga"/"Solicitar
- *   extra plan" en fondos/page.tsx) → Solicitudes (la acción que nace de ahí).
+ *   disponible mes a mes — y el origen real de los links "Declarar provisión",
+ *   "Declarar ahorro", "Reclasificar" y "Solicitar extra plan" en
+ *   fondos/page.tsx) → Solicitudes (la acción que nace de ahí).
  *
  * El bloque sin título de arriba junta las pantallas que NO son un flujo:
  * Dashboard (sólo lectura) e Ingresos (carga manual, sin pipeline detrás). Un

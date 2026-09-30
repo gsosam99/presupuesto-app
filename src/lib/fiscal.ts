@@ -85,8 +85,8 @@ export function inicioTrimestre(fy: number, trimestre: number): Date {
 }
 
 /**
- * Un trimestre ya empezó (está en curso o cerrado). Es la condición para pedir
- * un arrastre: el sobrante de un trimestre futuro todavía no existe.
+ * Un trimestre ya empezó (está en curso o cerrado). Es la condición para
+ * declarar una provisión: un trimestre futuro no tiene servicios recibidos.
  */
 export function trimestreIniciado(fy: number, trimestre: number, hoy = new Date()): boolean {
   return inicioTrimestre(fy, trimestre).getTime() <= hoy.getTime();

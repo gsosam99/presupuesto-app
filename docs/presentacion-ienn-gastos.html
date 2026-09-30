@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IENN Gastos App</title>
+<meta name="description" content="Propósito, flujo de trabajo, módulos y roles de IENN Gastos App, narrado con la estructura SCQA.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* Tokens: los mismos de src/app/globals.css para que la presentación hable el idioma visual de la app. */
+:root {
+  --navy: #0c3a57;
+  --ink: #12324d;
+  --ink-soft: #31465a;
+  --blue: #2e75b6;
+  --cyan: #2fb9ce;
+  --gold: #e0a93e;
+  --teal: #1e8a8a;
+  --red: #9e2b33;
+  --muted: #61707c;
+  --line: #e4e9ed;
+  --line-soft: #eef2f5;
+  --canvas: #f5f7f9;
+  --card: #ffffff;
+  --stage-bg: #dfe6ec;
+  --r: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --stage-bg: #0a1620; }
+}
+:root[data-theme="dark"] { --stage-bg: #0a1620; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100%;
+  background: var(--stage-bg);
+  color: var(--ink);
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-feature-settings: "tnum" 1;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* ---------- Motor de láminas: escenario fijo 1280×720 escalado al viewport ---------- */
+#deck { position: fixed; inset: 0; display: grid; place-items: center; }
+.slide {
+  position: absolute;
+  width: 1280px; height: 720px;
+  left: 50%; top: 50%;
+  transform-origin: center center;
+  background: var(--canvas);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(12, 58, 87, .22);
+  overflow: hidden;
+  padding: 56px 72px 64px;
+  display: flex; flex-direction: column;
+  opacity: 0; pointer-events: none;
+  transition: opacity .35s ease;
+}
+.slide.activa { opacity: 1; pointer-events: auto; }
+
+/* Pie común */
+.pie {
+  position: absolute; left: 72px; right: 72px; bottom: 22px;
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; color: var(--muted); letter-spacing: .02em;
+}
+.pie .marca { font-weight: 600; color: var(--ink-soft); }
+
+/* Etiqueta SCQA */
+.scqa {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--blue);
+}
+.scqa b {
+  display: inline-grid; place-items: center;
+  width: 26px; height: 26px; border-radius: 7px;
+  background: var(--blue); color: #fff; font-size: 13px; letter-spacing: 0;
+}
+.scqa.s { color: var(--teal); } .scqa.s b { background: var(--teal); }
+.scqa.c { color: var(--red); }  .scqa.c b { background: var(--red); }
+.scqa.q { color: #9a7420; }     .scqa.q b { background: var(--gold); }
+.scqa.a { color: var(--blue); } .scqa.a b { background: var(--blue); }
+
+h1, h2, h3 { color: var(--navy); letter-spacing: -.02em; }
+h2 { font-size: 38px; line-height: 1.12; font-weight: 800; margin-top: 12px; max-width: 1000px; }
+h3 { font-size: 18px; font-weight: 700; }
+.bajada { margin-top: 12px; font-size: 18px; line-height: 1.5; color: var(--ink-soft); max-width: 980px; }
+.cuerpo { margin-top: 28px; flex: 1; min-height: 0; }
+
+.card {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 20px 22px;
+}
+.card p, .card li { font-size: 14.5px; line-height: 1.5; color: var(--ink-soft); }
+.card ul { padding-left: 18px; margin-top: 8px; }
+.card li + li { margin-top: 4px; }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .92em; }
+.chip {
+  display: inline-block; font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+  background: var(--line-soft); color: var(--ink-soft); white-space: nowrap;
+}
+.grid { display: grid; gap: 16px; }
+.g2 { grid-template-columns: 1fr 1fr; }
+.g3 { grid-template-columns: repeat(3, 1fr); }
+.g4 { grid-template-columns: repeat(4, 1fr); }
+
+/* ---------- Portada y cierre ---------- */
+.portada { background: var(--navy); color: #fff; justify-content: center; }
+.portada h1 { color: #fff; font-size: 64px; line-height: 1.02; font-weight: 800; letter-spacing: -.035em; }
+.portada .kicker { color: var(--cyan); font-weight: 700; letter-spacing: .16em; text-transform: uppercase; font-size: 14px; }
+.portada .sub { margin-top: 22px; font-size: 22px; line-height: 1.45; color: #c9dbe8; max-width: 820px; }
+.portada .pie, .portada .pie .marca { color: #8fb0c6; }
+.portada .deco {
+  position: absolute; right: -120px; top: -120px; width: 560px; height: 560px; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(47,185,206,.35), rgba(46,117,182,.08) 60%, transparent 70%);
+}
+.portada .deco2 {
+  position: absolute; right: 120px; bottom: -200px; width: 420px; height: 420px; border-radius: 50%;
+  border: 2px solid rgba(224,169,62,.35);
+}
+
+/* ---------- SCQA mapa ---------- */
+.mapa { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.mapa .card { border-top: 5px solid var(--line); min-height: 250px; }
+.mapa .card .letra { font-size: 54px; font-weight: 800; line-height: 1; }
+.mapa .card h3 { margin-top: 10px; }
+.mapa .card p { margin-top: 8px; }
+.mapa .s { border-top-color: var(--teal); } .mapa .s .letra { color: var(--teal); }
+.mapa .c { border-top-color: var(--red); }  .mapa .c .letra { color: var(--red); }
+.mapa .q { border-top-color: var(--gold); } .mapa .q .letra { color: var(--gold); }
+.mapa .a { border-top-color: var(--blue); } .mapa .a .letra { color: var(--blue); }
+.mapa .laminas { margin-top: 14px; font-size: 12px; color: var(--muted); font-weight: 600; }
+
+/* ---------- Situación ---------- */
+.jerarquia { display: flex; align-items: stretch; gap: 10px; }
+.jerarquia .nivel { flex: 1; text-align: center; padding: 18px 12px; }
+.jerarquia .nivel .t { font-size: 13px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 700; }
+.jerarquia .nivel .n { font-size: 22px; font-weight: 800; color: var(--navy); margin-top: 6px; }
+.jerarquia .nivel p { margin-top: 6px; font-size: 13.5px; }
+.jerarquia .flecha { display: grid; place-items: center; color: var(--muted); font-size: 22px; }
+.fy { display: flex; margin-top: 10px; border-radius: 8px; overflow: hidden; }
+.fy span { flex: 1; text-align: center; font-size: 12px; font-weight: 600; padding: 8px 0; color: #fff; }
+
+/* ---------- Complicación ---------- */
+.dolor { display: flex; gap: 14px; align-items: flex-start; }
+.dolor .ico {
+  flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center;
+  background: rgba(158,43,51,.1); color: var(--red); font-weight: 800; font-size: 18px;
+}
+.dolor h3 { font-size: 16.5px; }
+.dolor p { margin-top: 4px; }
+
+/* ---------- Pregunta ---------- */
+.pregunta { background: #fff; justify-content: center; }
+.pregunta blockquote {
+  font-size: 44px; line-height: 1.2; font-weight: 800; color: var(--navy); letter-spacing: -.025em;
+  max-width: 1040px; margin-top: 18px; border-left: 8px solid var(--gold); padding-left: 32px;
+}
+.pregunta .subp { display: flex; gap: 12px; margin-top: 40px; padding-left: 40px; flex-wrap: wrap; }
+.pregunta .subp span {
+  font-size: 15px; font-weight: 600; color: var(--ink-soft); background: var(--canvas);
+  border: 1px solid var(--line); border-radius: 999px; padding: 9px 16px;
+}
+
+/* ---------- Respuesta ---------- */
+.pilar { border-top: 5px solid var(--blue); }
+.pilar .num { font-size: 13px; font-weight: 800; color: var(--blue); letter-spacing: .1em; }
+.pilar h3 { margin-top: 6px; font-size: 21px; }
+.pilar p { margin-top: 10px; }
+.claim {
+  margin-top: 18px; background: var(--navy); color: #fff; border-radius: var(--r);
+  padding: 18px 24px; font-size: 17px; line-height: 1.5;
+}
+.claim b { color: var(--cyan); }
+
+/* ---------- Flujo ---------- */
+.ciclo { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0; position: relative; }
+.paso { position: relative; padding: 0 8px; }
+.paso .bola {
+  width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center;
+  font-weight: 800; color: #fff; font-size: 17px; position: relative; z-index: 1;
+}
+.paso .linea { position: absolute; top: 22px; left: 54px; right: -8px; height: 2px; background: var(--line); }
+.paso:last-child .linea { display: none; }
+.paso h3 { font-size: 15.5px; margin-top: 14px; }
+.paso .cuando { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; margin-top: 4px; }
+.paso p { font-size: 13.5px; line-height: 1.45; color: var(--ink-soft); margin-top: 8px; }
+.paso .rol { margin-top: 10px; }
+.retro {
+  margin-top: 26px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+}
+
+/* ---------- Asistente SAP ---------- */
+.pasos6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.pasos6 .card { padding: 14px; position: relative; }
+.pasos6 .n { font-size: 24px; font-weight: 800; color: var(--line); line-height: 1; }
+.pasos6 h3 { font-size: 15px; margin-top: 8px; }
+.pasos6 p { font-size: 13px !important; margin-top: 6px; }
+.pasos6 .tag { margin-top: 10px; }
+.tag-lee { background: rgba(46,117,182,.12); color: var(--blue); }
+.tag-escribe { background: rgba(30,138,138,.13); color: var(--teal); }
+.banda {
+  margin-top: 10px; display: flex; border-radius: 8px; overflow: hidden; font-size: 12.5px; font-weight: 600;
+}
+.banda div { padding: 7px 14px; }
+.origenes { margin-top: 12px; padding: 12px 18px; }
+.origenes table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.origenes th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 4px 10px; border-bottom: 1px solid var(--line); }
+.origenes td { padding: 5px 10px; border-bottom: 1px solid var(--line-soft); color: var(--ink-soft); vertical-align: top; }
+.origenes td:first-child { font-weight: 700; color: var(--navy); white-space: nowrap; }
+
+/* ---------- Módulos ---------- */
+.modulo { display: flex; flex-direction: column; }
+.modulo .cab { display: flex; align-items: center; gap: 12px; }
+.modulo .ico {
+  flex: none; width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center;
+  background: rgba(46,117,182,.1); color: var(--blue);
+}
+.modulo .ico svg { width: 20px; height: 20px; }
+.modulo .ruta { font-size: 12px; color: var(--muted); }
+.modulo p { margin-top: 10px; }
+.modulo .quien { margin-top: auto; padding-top: 12px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.modulo .quien .lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-right: 2px; }
+.grupo-lbl { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+
+/* Chips de rol */
+.r-admin { background: var(--navy); color: #fff; }
+.r-finanzas { background: var(--teal); color: #fff; }
+.r-analista { background: var(--blue); color: #fff; }
+.r-lector { background: var(--line); color: var(--ink-soft); }
+
+/* ---------- Fondos ---------- */
+.ecuacion { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ecuacion .term { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; text-align: center; }
+.ecuacion .term b { display: block; font-size: 16px; color: var(--navy); }
+.ecuacion .term span { font-size: 12px; color: var(--muted); }
+.ecuacion .op { font-size: 26px; font-weight: 800; color: var(--muted); }
+.ecuacion .res { background: var(--navy); border-color: var(--navy); }
+.ecuacion .res b { color: #fff; } .ecuacion .res span { color: #a9c3d6; }
+.trimestres { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 20px; }
+.tri { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 14px; position: relative; }
+.tri .q { font-weight: 800; color: var(--navy); }
+.tri .m { font-size: 12px; color: var(--muted); }
+.tri .barra { height: 10px; border-radius: 5px; background: var(--line-soft); margin-top: 10px; overflow: hidden; display: flex; }
+.tri .est { margin-top: 8px; font-size: 12.5px; color: var(--ink-soft); }
+.tri .arrastre {
+  position: absolute; right: -16px; top: 50%; transform: translateY(-50%); z-index: 2;
+  background: var(--gold); color: #fff; font-size: 11px; font-weight: 800; border-radius: 999px; padding: 3px 7px;
+}
+
+/* ---------- Roles ---------- */
+.matriz { width: 100%; border-collapse: separate; border-spacing: 0; background: #fff; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.matriz th, .matriz td { padding: 6px 12px; font-size: 13px; border-bottom: 1px solid var(--line-soft); }
+.matriz thead th { background: var(--canvas); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); text-align: center; }
+.matriz thead th:first-child { text-align: left; }
+.matriz td { text-align: center; }
+.matriz td:first-child { text-align: left; color: var(--ink-soft); }
+.matriz td:first-child .mono { color: var(--muted); font-size: 11.5px; display: block; }
+.matriz tr:last-child td { border-bottom: 0; }
+.si { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: rgba(30,138,138,.14); color: var(--teal); font-weight: 800; font-size: 13px; }
+.no { color: #c3ccd4; font-weight: 700; }
+.nota-rol { font-size: 12.5px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+
+.persona { border-top: 5px solid var(--line); display: flex; flex-direction: column; }
+.persona.admin { border-top-color: var(--navy); }
+.persona.finanzas { border-top-color: var(--teal); }
+.persona.analista { border-top-color: var(--blue); }
+.persona.lector { border-top-color: #b7c3cc; }
+.persona .quien { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.persona h4 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-top: 14px; }
+.persona ul { padding-left: 16px; }
+.persona .cad { margin-top: auto; padding-top: 12px; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+
+/* ---------- Cierre ---------- */
+.cierre ol { list-style: none; counter-reset: c; }
+.cierre ol li { counter-increment: c; display: flex; gap: 14px; align-items: flex-start; font-size: 16px; line-height: 1.5; color: #d7e5ef; }
+.cierre ol li + li { margin-top: 14px; }
+.cierre ol li::before {
+  content: counter(c); flex: none; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
+  background: var(--cyan); color: var(--navy); font-weight: 800; font-size: 14px;
+}
+.cierre ol b { color: #fff; }
+
+/* ---------- Controles ---------- */
+.controles {
+  position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 6px; z-index: 10;
+  background: rgba(12,58,87,.92); color: #fff; border-radius: 999px; padding: 6px 8px;
+  font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.2);
+  opacity: .25; transition: opacity .2s;
+}
+.controles:hover, .controles:focus-within { opacity: 1; }
+.controles button {
+  background: transparent; border: 0; color: #fff; width: 32px; height: 32px; border-radius: 50%;
+  cursor: pointer; font-size: 16px; display: grid; place-items: center;
+}
+.controles button:hover { background: rgba(255,255,255,.14); }
+.controles button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
+.controles .cont { min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
+.progreso { position: fixed; top: 0; left: 0; height: 3px; background: var(--cyan); z-index: 10; transition: width .3s; }
+
+/* ---------- Impresión: una lámina por página ---------- */
+@page { size: 1280px 720px; margin: 0; }
+@media print {
+  html, body { overflow: visible; height: auto; background: #fff; }
+  #deck { position: static; display: block; }
+  .slide {
+    position: relative; left: auto; top: auto; transform: none !important;
+    opacity: 1; border-radius: 0; box-shadow: none; page-break-after: always; break-after: page;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .controles, .progreso { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="progreso" id="progreso"></div>
+<main id="deck">
+
+<!-- ======================================================= 1. PORTADA -->
+<section class="slide portada" aria-label="Portada">
+  <div class="deco"></div><div class="deco2"></div>
+  <p class="kicker">IENN · Innovación</p>
+  <h1 style="margin-top:18px">IENN Gastos App</h1>
+  <p class="sub">Un solo lugar para saber cuánto gastamos, cuánto nos queda y quién puede mover cada peso del presupuesto de innovación.</p>
+  <p class="sub" style="font-size:16px;margin-top:40px;color:#8fb0c6">Propósito · Flujo de trabajo · Módulos · Roles</p>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span>Presentación de producto</span></div>
+</section>
+
+<!-- ======================================================= 2. MAPA SCQA -->
+<section class="slide" aria-label="Cómo está contada esta presentación">
+  <p class="scqa"><b>·</b> Estructura</p>
+  <h2>Cómo está contada esta presentación</h2>
+  <p class="bajada">Seguimos la metodología SCQA: partimos de lo que todos conocemos, mostramos qué se complica, formulamos la pregunta que eso abre y respondemos con la app.</p>
+  <div class="cuerpo mapa">
+    <div class="card s"><div class="letra">S</div><h3>Situación</h3><p>Cómo se gestiona hoy el presupuesto de innovación: Hunting Zones, Órdenes Internas, Centros de Costo y el reporte de SAP.</p><p class="laminas">Lámina 3</p></div>
+    <div class="card c"><div class="letra">C</div><h3>Complicación</h3><p>Por qué esa gestión ya no escala: data dispersa, SAP incompleto, fondos que vencen sin aviso y aprobaciones por correo.</p><p class="laminas">Lámina 4</p></div>
+    <div class="card q"><div class="letra">Q</div><h3>Pregunta</h3><p>¿Cómo controlamos gasto y disponibilidad en un solo lugar, con trazabilidad y responsables claros?</p><p class="laminas">Lámina 5</p></div>
+    <div class="card a"><div class="letra">A</div><h3>Respuesta</h3><p>IENN Gastos App: su propósito, el flujo de trabajo, cada módulo y el modelo de roles.</p><p class="laminas">Láminas 6 a 16</p></div>
+  </div>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span class="num"></span></div>
+</section>
+
+<!-- ======================================================= 3. SITUACIÓN -->
+<section class="slide" aria-label="Situación">
+  <p class="scqa s"><b>S</b> Situación</p>
+  <h2>El presupuesto de innovación se planifica por trimestre y se ejecuta en SAP</h2>
+  <p class="bajada">Cada gasto nace en SAP, imputado a un Centro de Costo o a una Orden Interna. La gerencia, en cambio, lo lee por Hunting Zone y por trimestre del año fiscal.</p>
+  <div class="cuerpo">
+    <div class="jerarquia">
+      <div class="card nivel"><div class="t">Mira la gerencia</div><div class="n">Hunting Zone</div><p>La línea de innovación: dónde decidimos apostar.</p></div>
+      <div class="flecha">→</div>
+      <div class="card nivel"><div class="t">Presupuesta</div><div class="n">Orden Interna</div><p>La unidad presupuestaria. Puede ser real (SAP) o una etiqueta; tiene vigencia.</p></div>
+      <div class="flecha">→</div>
+      <div class="card nivel"><div class="t">Contabiliza</div><div class="n">Centro de Costo</div><p>Donde SAP imputa el gasto cuando no trae OI.</p></div>
+      <div class="flecha">→</div>
+      <div class="card nivel"><div class="t">Registra</div><div class="n">SAP</div><p>Fuente de verdad del gasto real: dos reportes, por CeCo y por OI.</p></div>
+    </div>
+    <div class="grid g2" style="margin-top:22px">
+      <div class="card">
+        <h3>El año fiscal arranca en octubre</h3>
+        <p style="margin-top:6px">FY 2026 = etiqueta <span class="mono">26/27</span> = oct-2026 a sep-2027. El presupuesto se habilita trimestre a trimestre.</p>
+        <div class="fy">
+          <span style="background:var(--navy)">Q1 · oct–dic</span>
+          <span style="background:var(--blue)">Q2 · ene–mar</span>
+          <span style="background:var(--teal)">Q3 · abr–jun</span>
+          <span style="background:var(--gold)">Q4 · jul–sep</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Dos tipos de dinero</h3>
+        <ul>
+          <li><b>Plan</b>: el presupuesto base aprobado para el año.</li>
+          <li><b>Extra Plan</b>: suplementos que se solicitan y aprueban durante el año.</li>
+          <li>Además, <b>ingresos</b> por Hunting Zone, para comparar contra el gasto.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span class="num"></span></div>
+</section>
+
+<!-- ======================================================= 4. COMPLICACIÓN -->
+<section class="slide" aria-label="Complicación">
+  <p class="scqa c"><b>C</b> Complicación</p>
+  <h2>Pero lo que SAP registra no es lo que la gerencia necesita ver</h2>
+  <p class="bajada">Entre el reporte de SAP y la decisión hay un trabajo manual, disperso y sin trazabilidad.</p>
+  <div class="cuerpo grid g2" style="row-gap:20px">
+    <div class="card dolor"><div class="ico">1</div><div><h3>SAP no trae el “para qué”</h3><p>Llega con CeCo u OI, pero sin Hunting Zone, fase, motivo ni encargado. Alguien tiene que completarlo a mano, gasto por gasto.</p></div></div>
+    <div class="card dolor"><div class="ico">2</div><div><h3>La factura llega antes que SAP</h3><p>Finanzas sabe del gasto semanas antes de que aparezca en el reporte. Ese dinero ya está comprometido, pero nadie lo ve.</p></div></div>
+    <div class="card dolor"><div class="ico">3</div><div><h3>El saldo vence en silencio</h3><p>Lo que no se gasta en el trimestre se pierde, salvo que se pida una prórroga a tiempo. Sin un cálculo trimestral, nadie lo advierte.</p></div></div>
+    <div class="card dolor"><div class="ico">4</div><div><h3>Un consolidado en Excel</h3><p>Cada reporte se pega a mano en un archivo histórico: duplicados, versiones cruzadas y ninguna forma de deshacer una carga.</p></div></div>
+    <div class="card dolor"><div class="ico">5</div><div><h3>Aprobaciones por correo</h3><p>Extra Plan y prórrogas se piden y aprueban fuera de cualquier sistema. No queda registro de quién aprobó qué, ni cuándo.</p></div></div>
+    <div class="card dolor"><div class="ico">6</div><div><h3>Todos pueden tocar todo</h3><p>Sin roles, quien consulta también puede modificar. No hay responsables claros de cada paso.</p></div></div>
+  </div>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span class="num"></span></div>
+</section>
+
+<!-- ======================================================= 5. PREGUNTA -->
+<section class="slide pregunta" aria-label="Pregunta">
+  <p class="scqa q"><b>Q</b> Pregunta</p>
+  <blockquote>¿Cómo sabemos, en todo momento, cuánto hemos gastado, cuánto nos queda por trimestre y quién es responsable de cada paso, sin depender de un Excel?</blockquote>
+  <div class="subp">
+    <span>¿Qué gasto de SAP corresponde a qué Hunting Zone?</span>
+    <span>¿Cuánto está comprometido y aún no llega?</span>
+    <span>¿Qué saldo vence este trimestre?</span>
+    <span>¿Quién pidió y quién aprobó cada extra?</span>
+  </div>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span class="num"></span></div>
+</section>
+
+<!-- ======================================================= 6. RESPUESTA · PROPÓSITO -->
+<section class="slide" aria-label="Respuesta: propósito">
+  <p class="scqa a"><b>A</b> Respuesta · Propósito</p>
+  <h2>IENN Gastos App: una sola fuente de verdad para el gasto y el presupuesto de innovación</h2>
+  <p class="bajada">La app toma el reporte de SAP, lo cruza con lo que ya sabíamos, completa lo que falta y lo confronta con el presupuesto trimestral.</p>
+  <div class="cuerpo grid g3">
+    <div class="card pilar"><div class="num">01 · CONTROLAR EL GASTO</div><h3>Del reporte SAP al gasto clasificado</h3><p>Carga guiada de SAP, cruce automático con las facturas pre-registradas, triaje de lo que no cruzó y deduplicación. Cada carga queda auditada y se puede revertir.</p></div>
+    <div class="card pilar" style="border-top-color:var(--teal)"><div class="num" style="color:var(--teal)">02 · GESTIONAR EL PRESUPUESTO</div><h3>Disponibilidad trimestral real</h3><p>Plan + Extra Plan + arrastre − consumido, por OI y trimestre. Muestra lo comprometido, lo que vence y permite pedir prórrogas y Extra Plan con aprobación registrada.</p></div>
+    <div class="card pilar" style="border-top-color:var(--gold)"><div class="num" style="color:#9a7420">03 · DECIDIR CON DATOS</div><h3>Dashboard para la gerencia</h3><p>Ejecución por Hunting Zone y motivo, ingresos contra gasto y benchmark por año fiscal. Se exporta a HTML interactivo o PDF, y tiene modo presentación.</p></div>
+  </div>
+  <div class="claim">Todo con <b>roles y permisos</b>: todos ven la misma información, pero cada rol solo modifica lo que le corresponde. La base de datos aplica la misma regla como última barrera.</div>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span class="num"></span></div>
+</section>
+
+<!-- ======================================================= 7. FLUJO DE TRABAJO -->
+<section class="slide" aria-label="Flujo de trabajo">
+  <p class="scqa a"><b>A</b> Respuesta · Flujo de trabajo</p>
+  <h2>El ciclo de trabajo: de la factura al tablero</h2>
+  <p class="bajada">Seis momentos, con un responsable y una cadencia claros. El disparador es la carga mensual de SAP.</p>
+  <div class="cuerpo">
+    <div class="ciclo">
+      <div class="paso"><div class="linea"></div><div class="bola" style="background:var(--navy)">0</div><h3>Configurar maestras</h3><div class="cuando" style="color:var(--navy)">Al inicio del FY</div><p>OI, Hunting Zones, CeCos, años fiscales y equipo con su rol.</p><div class="rol"><span class="chip r-admin">Admin</span></div></div>
+      <div class="paso"><div class="linea"></div><div class="bola" style="background:var(--teal)">1</div><h3>Cargar presupuesto</h3><div class="cuando" style="color:var(--teal)">Al inicio del FY</div><p>Excel de Plan y de Extra Plan. Cada línea se valida contra su OI.</p><div class="rol"><span class="chip r-finanzas">Finanzas</span></div></div>
+      <div class="paso"><div class="linea"></div><div class="bola" style="background:var(--blue)">2</div><h3>Pre-registrar facturas</h3><div class="cuando" style="color:var(--blue)">Continuo</div><p>Cada factura se registra al llegar, con su OI, taxonomía y encargado.</p><div class="rol"><span class="chip r-analista">Analista</span> <span class="chip r-finanzas">Finanzas</span></div></div>
+      <div class="paso"><div class="linea"></div><div class="bola" style="background:var(--cyan)">3</div><h3>Cargar SAP y cruzar</h3><div class="cuando" style="color:#1c8fa1">Mensual</div><p>El asistente carga los reportes y cruza por número de factura.</p><div class="rol"><span class="chip r-finanzas">Finanzas</span></div></div>
+      <div class="paso"><div class="linea"></div><div class="bola" style="background:var(--gold)">4</div><h3>Triaje</h3><div class="cuando" style="color:#9a7420">Mensual, tras la carga</div><p>Se completa la Hunting Zone, la fase y el motivo de lo que no cruzó; lo ajeno se archiva.</p><div class="rol"><span class="chip r-analista">Analista</span> <span class="chip r-finanzas">Finanzas</span></div></div>
+      <div class="paso"><div class="linea"></div><div class="bola" style="background:var(--red)">5</div><h3>Revisar fondos y decidir</h3><div class="cuando" style="color:var(--red)">Cierre de trimestre</div><p>Se revisa el saldo, se piden prórrogas o Extra Plan y se aprueban.</p><div class="rol"><span class="chip r-analista">Pide</span> <span class="chip r-finanzas">Aprueba</span></div></div>
+    </div>
+    <div class="retro">
+      <div class="card"><h3>El resultado alimenta todo lo demás</h3><p style="margin-top:6px">El gasto clasificado se refleja al instante en <b>Fondos</b> (saldo del trimestre) y en el <b>Dashboard</b> (lectura gerencial). No hay un paso de “consolidar”: la base es el consolidado.</p></div>
+      <div class="card"><h3>Todo es reversible y auditable</h3><p style="margin-top:6px">Una carga SAP se revierte desde el <b>Historial</b>; un cruce se deshace desde <b>Facturas</b>; un gasto archivado vuelve al triaje. Nada se borra sin dejar rastro.</p></div>
+    </div>
+  </div>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span class="num"></span></div>
+</section>
+
+<!-- ======================================================= 8. ASISTENTE SAP -->
+<section class="slide" aria-label="El corazón del flujo: carga y cruce SAP">
+  <p class="scqa a"><b>A</b> Respuesta · Flujo de trabajo</p>
+  <h2>El corazón del flujo: el asistente de carga y cruce SAP</h2>
+  <p class="bajada">Seis pasos guiados. Los dos primeros solo analizan; desde el tercero la carga existe y se puede retomar otro día sin perder avance.</p>
+  <div class="cuerpo">
+    <div class="pasos6">
+      <div class="card"><div class="n">01</div><h3>Qué se va a cargar</h3><p>Se suben los reportes SAP (CeCo y/o OI). La app detecta qué filas ya estaban cargadas.</p><span class="chip tag tag-lee">Solo lee</span></div>
+      <div class="card"><div class="n">02</div><h3>Rango de fechas</h3><p>Se acota el período a incorporar. El servidor vuelve a aplicar el filtro.</p><span class="chip tag tag-lee">Solo lee</span></div>
+      <div class="card"><div class="n">03</div><h3>Cruce automático</h3><p>Cada gasto se cruza por número de factura con lo pre-registrado y hereda su OI, taxonomía y encargado.</p><span class="chip tag tag-escribe">Escribe</span></div>
+      <div class="card"><div class="n">04</div><h3>Match manual</h3><p>Lo que no cruzó solo se asocia a mano, con sugerencias de posibles facturas.</p><span class="chip tag tag-escribe">Escribe</span></div>
+      <div class="card"><div class="n">05</div><h3>Rezagadas</h3><p>Se completan los gastos pendientes que no tienen factura detrás.</p><span class="chip tag tag-escribe">Escribe</span></div>
+      <div class="card"><div class="n">06</div><h3>Resumen</h3><p>Qué cruzó, qué se asoció a mano y qué quedó pendiente en la Sala de Triaje.</p><span class="chip tag tag-escribe">Cierra el lote</span></div>
+    </div>
+    <div class="banda">
+      <div style="flex:2;background:rgba(46,117,182,.12);color:var(--blue)">Pasos 1–2 · Carga SAP · rol Finanzas / Admin</div>
+      <div style="flex:4;background:rgba(30,138,138,.13);color:var(--teal)">Pasos 3–6 · Cruce y triaje · también Analista</div>
+    </div>
+    <div class="card origenes">
+      <table>
+        <thead><tr><th>Cómo obtiene cada gasto su Hunting Zone</th><th>Qué significa</th></tr></thead>
+        <tbody>
+          <tr><td>Orden Interna</td><td>La OI venía en SAP y coincidió con la maestra: la Hunting Zone y el CeCo se deducen solos.</td></tr>
+          <tr><td>Pre-registro</td><td>El gasto cruzó con una factura que Finanzas registró antes, y hereda sus datos.</td></tr>
+          <tr><td>Etiqueta de texto</td><td>El texto de referencia de SAP trae un <span class="mono">#TAG</span> (p. ej. <span class="mono">#CAM</span>) que apunta a una Hunting Zone.</td></tr>
+          <tr><td>Manual</td><td>El analista la asignó en la Sala de Triaje. Si nada aplica, el gasto queda pendiente.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span class="num"></span></div>
+</section>
+
+<!-- ======================================================= 9. MÓDULOS · VISIÓN -->
+<section class="slide" aria-label="Módulos: visión general">
+  <p class="scqa a"><b>A</b> Respuesta · Módulos (1/4)</p>
+  <h2>Visión general: Dashboard e Ingresos</h2>
+  <p class="bajada">Dos pantallas que no forman parte de un flujo: una para leer y otra para registrar lo que entra.</p>
+  <div class="cuerpo grid g2">
+    <div class="card modulo">
+      <div class="cab"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></div><div><h3>Dashboard</h3><div class="ruta mono">/dashboard</div></div></div>
+      <p>El tablero gerencial de seguimiento presupuestario, de solo lectura. Muestra los KPIs de ejecución, el benchmark de inversión en innovación y cuatro vistas: <b>Resumen</b>, <b>Motivo</b>, <b>Hunting Zone</b> y <b>Tabla dinámica</b>.</p>
+      <ul>
+        <li>Filtros por Hunting Zone y rango de años fiscales.</li>
+        <li>Ingresos contra gasto por año, con el neto como línea.</li>
+        <li>Exporta a HTML interactivo, a PDF ejecutivo y tiene <b>modo presentación</b> para comités.</li>
+      </ul>
+      <div class="quien"><span class="lbl">Lo usa</span><span class="chip r-lector">Todos los roles</span><span class="chip">Gerencia y comités</span></div>
+    </div>
+    <div class="card modulo">
+      <div class="cab"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></div><div><h3>Ingresos</h3><div class="ruta mono">/ingresos</div></div></div>
+      <p>Registro manual de los ingresos que generan las iniciativas, por mes y Hunting Zone, con la misma taxonomía del gasto (concepto, fase, motivo y detalle). Muestra el total del año fiscal y del mes en curso.</p>
+      <ul>
+        <li>Los campos sugieren los valores ya usados, para mantener la taxonomía limpia.</li>
+        <li>Alimenta la comparación ingreso contra gasto del Dashboard.</li>
+      </ul>
+      <div class="quien"><span class="lbl">Registra</span><span class="chip r-finanzas">Finanzas</span><span class="chip r-admin">Admin</span><span class="lbl" style="margin-left:8px">Consulta</span><span class="chip r-lector">Todos</span></div>
+    </div>
+  </div>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span class="num"></span></div>
+</section>
+
+<!-- ======================================================= 10. MÓDULOS · GASTOS -->
+<section class="slide" aria-label="Módulos: gastos">
+  <p class="scqa a"><b>A</b> Respuesta · Módulos (2/4)</p>
+  <h2>Gastos: del pre-registro al control</h2>
+  <p class="bajada">Cuatro pantallas ordenadas por flujo real, de la más activa a la más pasiva.</p>
+  <div class="cuerpo grid g4">
+    <div class="card modulo">
+      <div class="cab"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg></div><div><h3>Facturas</h3><div class="ruta mono">/facturas</div></div></div>
+      <p>Pre-registro de cada factura al llegar a finanzas: OI, taxonomía, encargado y número de orden. Admite carga masiva por Excel.</p>
+      <p>Filtra entre cruzadas y sin cruzar; permite editar, borrar y <b>deshacer un cruce</b>. Lo no cruzado es el <b>comprometido</b>.</p>
+      <div class="quien"><span class="lbl">Edita</span><span class="chip r-analista">Analista</span><span class="chip r-finanzas">Finanzas</span></div>
+    </div>
+    <div class="card modulo">
+      <div class="cab"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6h11"/><path d="M10 12h11"/><path d="M10 18h11"/><polyline points="3 6 4 7 6 5"/><polyline points="3 12 4 13 6 11"/><polyline points="3 18 4 19 6 17"/></svg></div><div><h3>Triaje y cruce SAP</h3><div class="ruta mono">/triaje</div></div></div>
+      <p>La <b>Sala de Triaje</b> lista los gastos pendientes del año fiscal con su monto total. Ahí se asigna la etiqueta de Hunting Zone y se completan fase, motivo y detalle.</p>
+      <p>Desde aquí se lanza la <b>Nueva carga SAP</b> (el asistente de 6 pasos). Lo ajeno al control se archiva.</p>
+      <div class="quien"><span class="lbl">Triaje</span><span class="chip r-analista">Analista</span><span class="lbl" style="margin-left:4px">Carga</span><span class="chip r-finanzas">Finanzas</span></div>
+    </div>
+    <div class="card modulo">
+      <div class="cab"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div><div><h3>Historial de cargas</h3><div class="ruta mono">/cargas</div></div></div>
+      <p>La auditoría de cada archivo cargado (SAP, presupuesto y facturas): filas leídas, insertadas, duplicadas y rechazadas, con el motivo.</p>
+      <p>Cada carga del asistente reabre su cruce. Una carga SAP errónea se <b>revierte</b> completa.</p>
+      <div class="quien"><span class="lbl">Revierte</span><span class="chip r-finanzas">Finanzas</span><span class="chip r-admin">Admin</span></div>
+    </div>
+    <div class="card modulo">
+      <div class="cab"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><line x1="10" y1="12" x2="14" y2="12"/></svg></div><div><h3>Archivados</h3><div class="ruta mono">/archivados</div></div></div>
+      <p>La papelera: gastos que SAP trae en cada reporte pero que no entran en el control (p. ej. Hunting Zones “No Aplica”, que se archivan solas).</p>
+      <p>Nunca se borran: quedan fuera de los KPIs y pueden <b>volver al triaje</b>. La deduplicación impide que reingresen.</p>
+      <div class="quien"><span class="lbl">Restaura</span><span class="chip r-analista">Analista</span><span class="chip r-finanzas">Finanzas</span></div>
+    </div>
+  </div>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span class="num"></span></div>
+</section>
+
+<!-- ======================================================= 11. MÓDULOS · PRESUPUESTO -->
+<section class="slide" aria-label="Módulos: presupuesto">
+  <p class="scqa a"><b>A</b> Respuesta · Módulos (3/4)</p>
+  <h2>Presupuesto: lo cargado, lo disponible y lo que se pide</h2>
+  <p class="bajada">La base (Presupuestos), la vista derivada (Fondos) y la acción que nace de ahí (Solicitudes).</p>
+  <div class="cuerpo grid g3">
+    <div class="card modulo">
+      <div class="cab"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12V8H6a2 2 0 0 1 0-4h12v4"/><path d="M4 6v12a2 2 0 0 0 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg></div><div><h3>Presupuestos</h3><div class="ruta mono">/presupuestos</div></div></div>
+      <p>Carga del <b>Plan</b> base y de los <b>Extra Plan</b> desde Excel. Cada línea apunta a una Orden Interna, y la app deduce su CeCo y su Hunting Zone cruzando contra la maestra.</p>
+      <p>Si una OI no existe, esa línea se <b>rechaza con su motivo</b> en vez de cargarse a ciegas. Muestra el consolidado por mes del año fiscal.</p>
+      <div class="quien"><span class="lbl">Carga</span><span class="chip r-finanzas">Finanzas</span><span class="chip r-admin">Admin</span></div>
+    </div>
+    <div class="card modulo">
+      <div class="cab"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8 0 3 2 4.5V20h4v-2h3v2h4v-4c1-.5 1.7-1 2-2h2v-4h-2c0-1-.5-1.5-1-2V5z"/><path d="M2 9v1c0 1.1.9 2 2 2h1"/></svg></div><div><h3>Fondos</h3><div class="ruta mono">/fondos</div></div></div>
+      <p>La disponibilidad <b>trimestral</b> de cada unidad presupuestaria: disponible hoy, por habilitar, consumido y vencido. Suma el <b>comprometido</b> (facturas aún sin cruzar) y el <b>saldo proyectado</b>.</p>
+      <p>Desde cada tarjeta se lanza <b>Pedir prórroga</b> o <b>Solicitar Extra Plan</b>.</p>
+      <div class="quien"><span class="lbl">Lo usan</span><span class="chip r-analista">Analista</span><span class="chip r-finanzas">Finanzas</span><span class="chip r-lector">Lector</span></div>
+    </div>
+    <div class="card modulo">
+      <div class="cab"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 19.5v.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8.5L20 7.5"/><polyline points="14 2 14 8 20 8"/><path d="M10.4 12.6a2 2 0 1 1 3 3L8 21l-4 1 1-4z"/></svg></div><div><h3>Solicitudes</h3><div class="ruta mono">/solicitudes</div></div></div>
+      <p>El circuito formal de <b>Extra Plan</b> y <b>prórrogas</b>, con estados:</p>
+      <p style="margin-top:8px"><span class="chip">Borrador</span> → <span class="chip" style="background:rgba(224,169,62,.18);color:#9a7420">Enviada</span> → <span class="chip" style="background:rgba(30,138,138,.14);color:var(--teal)">Aprobada</span> / <span class="chip" style="background:rgba(158,43,51,.12);color:var(--red)">Rechazada</span></p>
+      <p>La aprobación guarda su referencia externa y se puede revertir. El Extra Plan se descarga en Excel con el formato estándar.</p>
+      <div class="quien"><span class="lbl">Crea</span><span class="chip r-analista">Analista</span><span class="lbl" style="margin-left:4px">Aprueba</span><span class="chip r-finanzas">Finanzas</span></div>
+    </div>
+  </div>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span class="num"></span></div>
+</section>
+
+<!-- ======================================================= 12. FONDOS EN DETALLE -->
+<section class="slide" aria-label="Cómo se calcula lo disponible">
+  <p class="scqa a"><b>A</b> Respuesta · Módulos (3/4) · Fondos en detalle</p>
+  <h2>Cómo calcula Fondos lo que realmente queda para gastar</h2>
+  <p class="bajada">El cálculo es por unidad presupuestaria (OI o CeCo) y por trimestre. Cada trimestre depende de cuánto sobró, y se salvó, en el anterior.</p>
+  <div class="cuerpo">
+    <div class="ecuacion">
+      <div class="term"><b>Plan</b><span>del trimestre</span></div><div class="op">+</div>
+      <div class="term"><b>Extra Plan</b><span>aprobado</span></div><div class="op">+</div>
+      <div class="term"><b>Arrastre</b><span>prórroga del trimestre anterior</span></div><div class="op">−</div>
+      <div class="term"><b>Consumido</b><span>solo lo que registra SAP</span></div><div class="op">=</div>
+      <div class="term res"><b>Saldo</b><span>disponible del trimestre</span></div>
+    </div>
+    <div class="trimestres">
+      <div class="tri"><div class="q">Q1 <span class="m">· cerrado</span></div><div class="barra"><div style="width:72%;background:var(--navy)"></div><div style="width:28%;background:var(--gold)"></div></div><div class="est">Sobró un 28 %. Con una prórroga aprobada, pasa a Q2.</div><div class="arrastre">→</div></div>
+      <div class="tri"><div class="q">Q2 <span class="m">· en curso</span></div><div class="barra"><div style="width:45%;background:var(--navy)"></div><div style="width:15%;background:var(--cyan)"></div></div><div class="est">Consumido, <span style="color:#1c8fa1;font-weight:600">comprometido</span> y saldo de hoy.</div></div>
+      <div class="tri"><div class="q">Q3 <span class="m">· futuro</span></div><div class="barra"></div><div class="est">Por habilitar: aún no se puede gastar.</div></div>
+      <div class="tri"><div class="q">Q4 <span class="m">· futuro</span></div><div class="barra"></div><div class="est">No arrastra: el cálculo es por año fiscal.</div></div>
+    </div>
+    <div class="grid g3" style="margin-top:18px">
+      <div class="card"><h3>Vencido</h3><p style="margin-top:6px">El saldo de un trimestre cerrado que no se arrastró. Sin una prórroga, ese dinero se pierde.</p></div>
+      <div class="card"><h3>Prórroga</h3><p style="margin-top:6px">Al cierre pasa al trimestre siguiente el menor valor entre lo que sobró y lo aprobado. Se puede pedir de forma preventiva.</p></div>
+      <div class="card"><h3>Comprometido</h3><p style="margin-top:6px">Las facturas pre-registradas en USD que SAP aún no trajo. Nunca se mezcla con el consumido; las de más de 60 días se marcan para revisar.</p></div>
+    </div>
+  </div>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span class="num"></span></div>
+</section>
+
+<!-- ======================================================= 13. MÓDULOS · CONFIGURACIÓN -->
+<section class="slide" aria-label="Módulos: configuración">
+  <p class="scqa a"><b>A</b> Respuesta · Módulos (4/4)</p>
+  <h2>Configuración: las maestras que hacen posible todo el cruce</h2>
+  <p class="bajada">Anclada al pie de la barra lateral, fuera de los flujos. Todas las deducciones automáticas dependen de que estas tablas estén al día.</p>
+  <div class="cuerpo grid g3" style="grid-template-rows:auto auto">
+    <div class="card"><h3>Órdenes Internas</h3><p style="margin-top:6px">Código, tipo (real de SAP o etiqueta), Hunting Zone, CeCo padre y <b>vigencia</b>. Una OI vencida no aparece en los selectores, así que no se le puede imputar gasto.</p></div>
+    <div class="card"><h3>Hunting Zones</h3><p style="margin-top:6px">Nombre, <span class="mono">#tag</span> principal, orden de aparición y la opción <b>archivar automático</b> para las que nunca entran al control.</p></div>
+    <div class="card"><h3>Centros de Costo</h3><p style="margin-top:6px">El código SAP limpio (sin el prefijo <span class="mono">DIVA/</span>) y si trabaja con proyectos.</p></div>
+    <div class="card"><h3>Años fiscales</h3><p style="margin-top:6px">Qué años están activos en el selector de año fiscal de la barra lateral, que filtra todas las pantallas.</p></div>
+    <div class="card" style="grid-column:span 2;border-left:5px solid var(--navy)"><h3>Equipo</h3><p style="margin-top:6px">Los miembros del equipo con su correo y su <b>rol</b>. El rol se asigna al usuario que inicia sesión con ese correo. Un miembro sin rol es un <b>encargado</b>: aparece en las facturas, pero no entra a la app.</p><div class="quien" style="margin-top:12px;display:flex;gap:6px;align-items:center"><span class="grupo-lbl" style="margin-right:4px">Edita</span><span class="chip r-admin">Solo Admin</span><span class="grupo-lbl" style="margin:0 4px 0 10px">Consulta</span><span class="chip r-lector">Todos</span></div></div>
+  </div>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span class="num"></span></div>
+</section>
+
+<!-- ======================================================= 14. ROLES · MATRIZ -->
+<section class="slide" aria-label="Roles y permisos">
+  <p class="scqa a"><b>A</b> Respuesta · Roles</p>
+  <h2>Cuatro roles: todos leen todo, cada uno escribe solo lo suyo</h2>
+  <p class="bajada">La segmentación es sobre qué puede <b>modificar</b> cada rol. La app valida cada acción y la base de datos aplica la misma matriz como última barrera.</p>
+  <div class="cuerpo">
+    <table class="matriz">
+      <thead><tr><th>Permiso</th><th><span class="chip r-admin">Admin</span></th><th><span class="chip r-finanzas">Finanzas</span></th><th><span class="chip r-analista">Analista</span></th><th><span class="chip r-lector">Lector</span></th></tr></thead>
+      <tbody>
+        <tr><td>Consultar todas las pantallas, Dashboard y Fondos</td><td><span class="si">✓</span></td><td><span class="si">✓</span></td><td><span class="si">✓</span></td><td><span class="si">✓</span></td></tr>
+        <tr><td>Registrar, editar y borrar facturas; deshacer cruces</td><td><span class="si">✓</span></td><td><span class="si">✓</span></td><td><span class="si">✓</span></td><td><span class="no">—</span></td></tr>
+        <tr><td>Triaje: match manual, rezagadas, archivar y restaurar</td><td><span class="si">✓</span></td><td><span class="si">✓</span></td><td><span class="si">✓</span></td><td><span class="no">—</span></td></tr>
+        <tr><td>Crear, enviar y devolver solicitudes a borrador</td><td><span class="si">✓</span></td><td><span class="si">✓</span></td><td><span class="si">✓</span></td><td><span class="no">—</span></td></tr>
+        <tr><td>Cargar reportes SAP y revertir cargas</td><td><span class="si">✓</span></td><td><span class="si">✓</span></td><td><span class="no">—</span></td><td><span class="no">—</span></td></tr>
+        <tr><td>Cargar presupuesto Plan y Extra Plan</td><td><span class="si">✓</span></td><td><span class="si">✓</span></td><td><span class="no">—</span></td><td><span class="no">—</span></td></tr>
+        <tr><td>Aprobar, rechazar o revertir solicitudes</td><td><span class="si">✓</span></td><td><span class="si">✓</span></td><td><span class="no">—</span></td><td><span class="no">—</span></td></tr>
+        <tr><td>Registrar y editar ingresos</td><td><span class="si">✓</span></td><td><span class="si">✓</span></td><td><span class="no">—</span></td><td><span class="no">—</span></td></tr>
+        <tr><td>Maestras: OI, Hunting Zones, CeCos y años fiscales</td><td><span class="si">✓</span></td><td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="no">—</span></td></tr>
+        <tr><td>Equipo: alta de miembros y asignación de roles</td><td><span class="si">✓</span></td><td><span class="no">—</span></td><td><span class="no">—</span></td><td><span class="no">—</span></td></tr>
+      </tbody>
+    </table>
+    <p class="nota-rol">Sin rol en la maestra de Equipo no se entra a ninguna pantalla. Si un rol intenta una acción que no le corresponde, la pantalla no ofrece el botón y el servidor la rechaza.</p>
+  </div>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span class="num"></span></div>
+</section>
+
+<!-- ======================================================= 15. ROLES · QUIÉN USA QUÉ -->
+<section class="slide" aria-label="Quién debe usar cada módulo y cómo">
+  <p class="scqa a"><b>A</b> Respuesta · Roles</p>
+  <h2>Quién debe usar cada módulo, cómo y cuándo</h2>
+  <p class="bajada">Cada rol tiene un recorrido natural por la app. Esta es la guía de uso recomendada.</p>
+  <div class="cuerpo grid g4">
+    <div class="card persona analista">
+      <h3>Analista</h3><div class="quien">Equipo de innovación y encargados de iniciativas</div>
+      <h4>Módulos</h4>
+      <ul><li><b>Facturas</b>: registra cada factura al recibirla.</li><li><b>Triaje</b>: clasifica lo pendiente tras cada carga SAP.</li><li><b>Fondos</b>: vigila su saldo y lo que vence.</li><li><b>Solicitudes</b>: pide prórrogas y Extra Plan.</li></ul>
+      <div class="cad">Cadencia: diaria (facturas) y mensual (triaje)</div>
+    </div>
+    <div class="card persona finanzas">
+      <h3>Finanzas</h3><div class="quien">Control de gestión del área</div>
+      <h4>Módulos</h4>
+      <ul><li><b>Triaje → Nueva carga SAP</b>: corre el asistente cada mes.</li><li><b>Presupuestos</b>: carga Plan y Extra Plan.</li><li><b>Solicitudes</b>: aprueba o rechaza con su referencia.</li><li><b>Historial</b>: revierte cargas erróneas.</li><li><b>Ingresos</b>: registra lo que entra.</li></ul>
+      <div class="cad">Cadencia: mensual y al cierre de trimestre</div>
+    </div>
+    <div class="card persona admin">
+      <h3>Administrador</h3><div class="quien">Dueño funcional de la app</div>
+      <h4>Módulos</h4>
+      <ul><li><b>Configuración</b>: mantiene OI, Hunting Zones, CeCos y años fiscales.</li><li><b>Equipo</b>: da de alta usuarios y asigna roles.</li><li>Puede cubrir cualquier tarea de Finanzas.</li></ul>
+      <div class="cad">Cadencia: inicio de año fiscal y cuando cambian las maestras</div>
+    </div>
+    <div class="card persona lector">
+      <h3>Lector</h3><div class="quien">Gerencia, dirección y otras áreas</div>
+      <h4>Módulos</h4>
+      <ul><li><b>Dashboard</b>: seguimiento y modo presentación en comités.</li><li><b>Fondos</b>: cuánto queda por Hunting Zone.</li><li>Exporta el tablero en HTML o PDF.</li></ul>
+      <div class="cad">Cadencia: comités y revisiones de trimestre</div>
+    </div>
+  </div>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span class="num"></span></div>
+</section>
+
+<!-- ======================================================= 16. CIERRE -->
+<section class="slide portada cierre" aria-label="Cierre">
+  <div class="deco"></div>
+  <p class="kicker">En resumen</p>
+  <h1 style="font-size:46px;margin-top:14px;max-width:980px">De un Excel consolidado a manos, a un ciclo controlado, trazable y con responsables</h1>
+  <ol style="margin-top:36px;max-width:1000px">
+    <li><span><b>Situación:</b> el gasto vive en SAP, pero la gerencia decide por Hunting Zone y por trimestre.</span></li>
+    <li><span><b>Complicación:</b> SAP no trae ese contexto, las facturas se adelantan, los saldos vencen y las aprobaciones se pierden en el correo.</span></li>
+    <li><span><b>Pregunta:</b> ¿cómo sabemos cuánto gastamos, cuánto nos queda y quién responde por cada paso?</span></li>
+    <li><span><b>Respuesta:</b> IENN Gastos App, con un ciclo de seis momentos, diez módulos y cuatro roles con permisos claros.</span></li>
+  </ol>
+  <div class="pie"><span class="marca">IENN Gastos App</span><span class="num"></span></div>
+</section>
+
+</main>
+
+<nav class="controles" aria-label="Navegación de láminas">
+  <button id="btn-prev" type="button" aria-label="Lámina anterior">‹</button>
+  <span class="cont" id="contador">1 / 1</span>
+  <button id="btn-next" type="button" aria-label="Lámina siguiente">›</button>
+  <button id="btn-full" type="button" aria-label="Pantalla completa">⤢</button>
+</nav>
+
+<script>
+(function () {
+  var slides = Array.prototype.slice.call(document.querySelectorAll(".slide"));
+  var contador = document.getElementById("contador");
+  var progreso = document.getElementById("progreso");
+  var total = slides.length;
+  var actual = 0;
+
+  slides.forEach(function (s, i) {
+    var n = s.querySelector(".pie .num");
+    if (n) n.textContent = (i + 1) + " / " + total;
+  });
+
+  function escalar() {
+    var k = Math.min(window.innerWidth / 1360, window.innerHeight / 780);
+    slides.forEach(function (s) {
+      s.style.transform = "translate(-50%, -50%) scale(" + k + ")";
+    });
+  }
+
+  function ir(i) {
+    actual = Math.max(0, Math.min(total - 1, i));
+    slides.forEach(function (s, j) {
+      s.classList.toggle("activa", j === actual);
+      s.setAttribute("aria-hidden", j === actual ? "false" : "true");
+    });
+    contador.textContent = (actual + 1) + " / " + total;
+    progreso.style.width = ((actual + 1) / total * 100) + "%";
+    try { history.replaceState(null, "", "#" + (actual + 1)); } catch (e) { /* sandbox sin history */ }
+  }
+
+  document.getElementById("btn-prev").addEventListener("click", function () { ir(actual - 1); });
+  document.getElementById("btn-next").addEventListener("click", function () { ir(actual + 1); });
+  document.getElementById("btn-full").addEventListener("click", function () {
+    if (!document.fullscreenElement) {
+      if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
+    } else if (document.exitFullscreen) {
+      document.exitFullscreen();
+    }
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (["ArrowRight", "PageDown", " ", "Enter"].indexOf(e.key) >= 0) { e.preventDefault(); ir(actual + 1); }
+    else if (["ArrowLeft", "PageUp", "Backspace"].indexOf(e.key) >= 0) { e.preventDefault(); ir(actual - 1); }
+    else if (e.key === "Home") ir(0);
+    else if (e.key === "End") ir(total - 1);
+    else if (e.key === "f" || e.key === "F") document.getElementById("btn-full").click();
+  });
+
+  var x0 = null;
+  document.addEventListener("touchstart", function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener("touchend", function (e) {
+    if (x0 === null) return;
+    var dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 40) ir(actual + (dx < 0 ? 1 : -1));
+    x0 = null;
+  }, { passive: true });
+
+  window.addEventListener("resize", escalar, { passive: true });
+  escalar();
+  var inicial = parseInt((location.hash || "").slice(1), 10);
+  ir(isNaN(inicial) ? 0 : inicial - 1);
+})();
+</script>
+</body>
+</html>

@@ -39,7 +39,7 @@ export function SubidaPresupuesto() {
           {(
             [
               ["plan", "Plan base"],
-              ["extra_plan", "Extra Plan (suplemento)"],
+              ["extra_plan", "Extra plan"],
             ] as const
           ).map(([valor, etiqueta]) => (
             <label key={valor} className="flex items-center gap-2 text-sm text-slate-900">

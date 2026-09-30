@@ -106,7 +106,7 @@ export function TablaFacturas({ filas, edicion, estadoInicial = "todas" }: Props
     seleccionables.every((f) => seleccion.has(f.id_factura_preregistrada));
 
   const sinCruzar = filas.filter((f) => !f.conciliada);
-  const comprometidoUsd = sinCruzar.reduce(
+  const preregistradoUsd = sinCruzar.reduce(
     (s, f) => s + (f.moneda === "USD" && f.monto_estimado !== null ? f.monto_estimado : 0),
     0,
   );
@@ -207,8 +207,8 @@ export function TablaFacturas({ filas, edicion, estadoInicial = "todas" }: Props
           <dd className="kv">{sinCruzar.length}</dd>
         </div>
         <div className="ui-kpi">
-          <dt className="kl">Declarado sin cruzar (USD)</dt>
-          <dd className="kv">{moneda.format(comprometidoUsd)}</dd>
+          <dt className="kl">Pre-registrado sin cruzar (USD)</dt>
+          <dd className="kv">{moneda.format(preregistradoUsd)}</dd>
         </div>
       </dl>
 
