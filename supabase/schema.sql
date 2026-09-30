@@ -1841,3 +1841,365 @@ begin
          using (public.rol_en(%L::public.rol_app[]))', r.tabla, r.del);
   end loop;
 end $$;
+
+-- ============================================================================
+-- 17. Cuenta de fondos mensual — 2026-09-30
+-- ============================================================================
+-- Alinea la app con el manual "Reporte de Control Presupuestario" de
+-- Planificación Financiera (reporte BW por Orden Interna):
+--
+--   Plan         lo asignado a la OI en el ejercicio.
+--   Suplementos  extra plan + fondos que ENTRAN por reclasificación.
+--   Real         facturas contabilizadas en SAP. Es lo ÚNICO que cuenta como
+--                gasto (dashboard, KPIs): todo lo demás de esta sección es la
+--                cuenta de fondos del área, para saber cuánto hay disponible y
+--                dejar rastro de qué pasó con el dinero.
+--   Devoluciones ahorros declarados + fondos que SALEN por reclasificación.
+--   Disponible   lo que queda para imputar en el mes en curso.
+--   (Comprometido y Asignado de SAP no se ingieren: la app no los usa.)
+--
+-- Ciclo: finanzas HABILITA el plan mes a mes y RETIRA lo no usado al cerrar
+-- cada trimestre. Lo que sobra de un mes pasa al siguiente dentro del mismo
+-- trimestre. Al cierre, el sobrante se retira salvo lo declarado como
+-- PROVISIÓN (servicio recibido, factura pendiente), que pasa al trimestre
+-- siguiente. Reemplaza a la "prórroga", que no existe en el proceso real.
+--
+-- Se corre en TRES bloques separados en el SQL Editor:
+--   17a  valores nuevos del enum (Postgres no deja usarlos en la misma
+--        transacción en que se crean).
+--   17b  columnas, función fondos_mensuales y vista v_preregistrado_mensual.
+--        Correr ANTES del deploy de la app.
+--   17c  limpieza de lo reemplazado. Correr DESPUÉS del deploy.
+
+-- ---------------------------------------------------------------------------
+-- 17a — enum (bloque propio)
+-- ---------------------------------------------------------------------------
+alter type public.tipo_solicitud add value if not exists 'reclasificacion';
+alter type public.tipo_solicitud add value if not exists 'ahorro';
+alter type public.tipo_solicitud add value if not exists 'provision';
+
+-- ---------------------------------------------------------------------------
+-- 17b — modelo (bloque propio, después de 17a)
+-- ---------------------------------------------------------------------------
+
+-- Reclasificación: la unidad de la solicitud (id_oi / id_ceco) es el ORIGEN;
+-- estas columnas son el DESTINO. Sus líneas (mes + monto) son lo que se mueve.
+alter table public.solicitudes
+  add column if not exists id_oi_destino   uuid references public.ordenes_internas(id) on delete restrict,
+  add column if not exists id_ceco_destino uuid references public.cecos(id) on delete restrict;
+
+create index if not exists idx_solicitudes_oi_destino on public.solicitudes(id_oi_destino);
+
+-- La prórroga pasa a provisión: misma forma (trimestre + monto), semántica real.
+alter table public.solicitudes drop constraint if exists solicitudes_prorroga_trimestre;
+alter table public.solicitudes drop constraint if exists solicitudes_prorroga_monto;
+
+update public.solicitudes set tipo = 'provision' where tipo = 'prorroga';
+
+do $$ begin
+  alter table public.solicitudes add constraint solicitudes_provision_trimestre
+    check (tipo <> 'provision' or trimestre is not null);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table public.solicitudes add constraint solicitudes_provision_monto
+    check (tipo <> 'provision' or monto_solicitado is not null);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table public.solicitudes add constraint solicitudes_reclasificacion_destino
+    check (
+      tipo <> 'reclasificacion'
+      or (
+        (id_oi_destino is not null or id_ceco_destino is not null)
+        and coalesce(id_oi_destino::text, 'ceco:' || id_ceco_destino::text)
+            <> coalesce(id_oi::text, 'ceco:' || id_ceco::text)
+      )
+    );
+exception when duplicate_object then null; end $$;
+
+comment on column public.solicitudes.id_oi_destino is
+  'Solo reclasificación: OI que recibe los fondos (la unidad de la solicitud es el origen).';
+
+-- Cuenta de fondos por unidad y mes -----------------------------------------
+-- Una fila por unidad presupuestaria (OI, o CeCo si la HZ no tiene OI) y mes
+-- del FY pedido:
+--
+--   movimiento = plan + suplementos − devoluciones − real
+--   disponible = disponible del mes anterior del MISMO trimestre
+--                (o la provisión recibida, en el 1.er mes del trimestre)
+--                + movimiento
+--
+-- En el último mes de un trimestre CERRADO:
+--   sobrante            = max(disponible, 0)      (un sobregiro no se arrastra)
+--   provision_siguiente = least(sobrante, provisiones aprobadas del trimestre)
+--   retirado            = sobrante − provision_siguiente
+--
+-- La cadena recorre todos los meses desde el primer FY con presupuesto o
+-- solicitudes, así la provisión del Q4 llega al Q1 del FY siguiente. Antes
+-- de ese FY no hay fondos que provisionar, así que empezar ahí es exacto.
+--
+-- Fuentes: presupuestos (plan y extra plan), v_gastos_periodo (real, con la
+-- misma fecha efectiva y unidad que usa el resto de la app) y solicitudes
+-- APROBADAS (reclasificación, ahorro, provisión).
+create or replace function public.fondos_mensuales(
+  p_fy    smallint,
+  p_corte date default current_date
+)
+returns table (
+  clave               text,
+  id_oi               uuid,
+  codigo_oi           text,
+  id_ceco             uuid,
+  codigo_ceco         text,
+  id_hunting_zone     uuid,
+  hunting_zone        text,
+  mes                 smallint,
+  trimestre           smallint,
+  estado_mes          text,
+  plan                numeric,
+  suplementos         numeric,
+  devoluciones        numeric,
+  monto_real          numeric,
+  provision_recibida  numeric,
+  disponible          numeric,
+  provision_siguiente numeric,
+  retirado            numeric
+)
+language sql
+stable
+set search_path = ''
+as $fn$
+with recursive
+inicio as (
+  select least(
+    p_fy::int,
+    coalesce(
+      least(
+        (select min(p.fy) from public.presupuestos p),
+        (select min(s.fy) from public.solicitudes s)
+      )::int,
+      p_fy::int
+    )
+  ) as fy0
+),
+meses as (
+  select
+    k,
+    (i.fy0 + (k - 1) / 12)::smallint                  as fy,
+    ((((k - 1) % 12) + 9) % 12 + 1)::smallint         as mes,
+    (((k - 1) % 12) / 3 + 1)::smallint                as trimestre,
+    ((k - 1) % 3)                                     as pos_trim,
+    make_date(
+      i.fy0 + (k - 1) / 12 + case when (k - 1) % 12 < 3 then 0 else 1 end,
+      (((k - 1) % 12) + 9) % 12 + 1,
+      1
+    )                                                 as inicio_mes
+  from inicio i
+  cross join generate_series(1, (p_fy - i.fy0 + 1) * 12) as k
+),
+plan_mes as (
+  select
+    coalesce(p.id_oi::text, 'ceco:' || p.id_ceco::text)  as clave,
+    p.id_oi, p.id_ceco, p.fy, p.mes::smallint           as mes,
+    coalesce(sum(p.monto) filter (where p.tipo = 'plan'), 0)       as plan,
+    coalesce(sum(p.monto) filter (where p.tipo = 'extra_plan'), 0) as extra
+  from public.presupuestos p, inicio i
+  where p.fy between i.fy0 and p_fy
+  group by 1, 2, 3, 4, 5
+),
+real_mes as (
+  select
+    coalesce(g.id_oi::text, 'ceco:' || g.id_ceco::text)  as clave,
+    g.id_oi, g.id_ceco,
+    g.fy_efectivo                                       as fy,
+    extract(month from g.fecha_efectiva)::smallint      as mes,
+    sum(g.monto_real)                                   as monto_real
+  from public.v_gastos_periodo g, inicio i
+  where g.fy_efectivo between i.fy0 and p_fy
+    and g.estado_revision <> 'excluido'
+    and (g.id_oi is not null or g.id_ceco is not null)
+  group by 1, 2, 3, 4, 5
+),
+lineas as (
+  select s.tipo, s.id_oi, s.id_ceco, s.id_oi_destino, s.id_ceco_destino,
+         s.fy, l.mes, l.monto
+  from public.solicitudes s
+  join public.solicitud_lineas l on l.id_solicitud = s.id
+  where s.estado = 'aprobada'
+    and s.tipo in ('reclasificacion', 'ahorro')
+),
+devol_mes as (
+  select coalesce(id_oi::text, 'ceco:' || id_ceco::text) as clave,
+         id_oi, id_ceco, fy, mes, sum(monto) as monto
+  from lineas
+  group by 1, 2, 3, 4, 5
+),
+reclas_entrada as (
+  select coalesce(id_oi_destino::text, 'ceco:' || id_ceco_destino::text) as clave,
+         id_oi_destino as id_oi, id_ceco_destino as id_ceco, fy, mes, sum(monto) as monto
+  from lineas
+  where tipo = 'reclasificacion'
+  group by 1, 2, 3, 4, 5
+),
+prov_trim as (
+  select coalesce(s.id_oi::text, 'ceco:' || s.id_ceco::text) as clave,
+         s.id_oi, s.id_ceco, s.fy, s.trimestre, sum(s.monto_solicitado) as monto
+  from public.solicitudes s
+  where s.estado = 'aprobada' and s.tipo = 'provision'
+  group by 1, 2, 3, 4, 5
+),
+unidades as (
+  select clave, id_oi, id_ceco from plan_mes
+  union select clave, id_oi, id_ceco from real_mes
+  union select clave, id_oi, id_ceco from devol_mes
+  union select clave, id_oi, id_ceco from reclas_entrada
+  union select clave, id_oi, id_ceco from prov_trim
+),
+datos as (
+  select
+    u.clave, u.id_oi, u.id_ceco,
+    m.k, m.fy, m.mes, m.trimestre, m.pos_trim,
+    case
+      when m.inicio_mes <  date_trunc('month', p_corte)::date then 'cerrado'
+      when m.inicio_mes =  date_trunc('month', p_corte)::date then 'actual'
+      else 'futuro'
+    end                                               as estado_mes,
+    coalesce(pl.plan, 0)                              as plan,
+    coalesce(pl.extra, 0) + coalesce(re.monto, 0)     as suplementos,
+    coalesce(de.monto, 0)                             as devoluciones,
+    coalesce(rm.monto_real, 0)                        as monto_real,
+    case when m.pos_trim = 2 then coalesce(pt.monto, 0) else 0 end as provision_declarada
+  from unidades u
+  cross join meses m
+  left join plan_mes pl       on pl.clave = u.clave and pl.fy = m.fy and pl.mes = m.mes
+  left join real_mes rm       on rm.clave = u.clave and rm.fy = m.fy and rm.mes = m.mes
+  left join devol_mes de      on de.clave = u.clave and de.fy = m.fy and de.mes = m.mes
+  left join reclas_entrada re on re.clave = u.clave and re.fy = m.fy and re.mes = m.mes
+  left join prov_trim pt      on pt.clave = u.clave and pt.fy = m.fy and pt.trimestre = m.trimestre
+),
+cadena as (
+  select
+    d.clave, d.id_oi, d.id_ceco, d.k, d.fy, d.mes, d.trimestre, d.pos_trim,
+    d.estado_mes, d.plan, d.suplementos, d.devoluciones, d.monto_real, d.provision_declarada,
+    0::numeric                                                  as provision_recibida,
+    d.plan + d.suplementos - d.devoluciones - d.monto_real            as disponible
+  from datos d
+  where d.k = 1
+
+  union all
+
+  select
+    n.clave, n.id_oi, n.id_ceco, n.k, n.fy, n.mes, n.trimestre, n.pos_trim,
+    n.estado_mes, n.plan, n.suplementos, n.devoluciones, n.monto_real, n.provision_declarada,
+    -- Solo el cierre de un trimestre YA CERRADO define la provisión que pasa.
+    case
+      when n.pos_trim = 0 and c.estado_mes = 'cerrado'
+        then least(greatest(c.disponible, 0), c.provision_declarada)
+      else 0
+    end,
+    case
+      when n.pos_trim = 0
+        then case
+               when c.estado_mes = 'cerrado'
+                 then least(greatest(c.disponible, 0), c.provision_declarada)
+               else 0
+             end
+      else c.disponible
+    end + n.plan + n.suplementos - n.devoluciones - n.monto_real
+  from cadena c
+  join datos n on n.clave = c.clave and n.k = c.k + 1
+)
+select
+  c.clave,
+  c.id_oi,
+  oi.codigo_oi,
+  c.id_ceco,
+  ce.codigo_sap                                               as codigo_ceco,
+  oi.id_hunting_zone,
+  hz.nombre                                                   as hunting_zone,
+  c.mes,
+  c.trimestre,
+  c.estado_mes,
+  c.plan,
+  c.suplementos,
+  c.devoluciones,
+  c.monto_real,
+  c.provision_recibida,
+  c.disponible,
+  case
+    when c.pos_trim = 2 and c.estado_mes = 'cerrado'
+      then least(greatest(c.disponible, 0), c.provision_declarada)
+    else 0
+  end                                                         as provision_siguiente,
+  case
+    when c.pos_trim = 2 and c.estado_mes = 'cerrado'
+      then greatest(c.disponible, 0)
+           - least(greatest(c.disponible, 0), c.provision_declarada)
+    else 0
+  end                                                         as retirado
+from cadena c
+left join public.ordenes_internas oi on oi.id = c.id_oi
+left join public.cecos ce            on ce.id = c.id_ceco
+left join public.hunting_zones hz    on hz.id = oi.id_hunting_zone
+where c.fy = p_fy
+order by coalesce(oi.codigo_oi, ce.codigo_sap), c.k;
+$fn$;
+
+comment on function public.fondos_mensuales(smallint, date) is
+  'Cuenta de fondos por unidad y mes: plan habilitado mensual, suplementos, devoluciones, real SAP, disponible acumulado en el trimestre, provisión y retiro al cierre.';
+
+-- Pre-registrado por mes ------------------------------------------------------
+-- Facturas registradas en la app que SAP todavía no trajo. Informativo: nunca
+-- se descuenta del disponible (el consumo solo lo pone SAP) y se cancela solo
+-- cuando la factura cruza. Mismas reglas que tenía v_comprometido_trimestre
+-- (solo USD, fuera las de más de 60 días, unidad OI real → CeCo → etiqueta),
+-- ahora por mes para la vista mensual de Fondos.
+create or replace view public.v_preregistrado_mensual as
+with pendientes as (
+  select
+    fp.id,
+    coalesce(fp.fecha_factura, fp.created_at::date) as fecha,
+    case
+      when oi.tipo = 'real' then fp.id_oi
+      when fp.id_ceco is null then fp.id_oi
+    end as id_oi,
+    case
+      when oi.tipo is distinct from 'real' and fp.id_ceco is not null then fp.id_ceco
+    end as id_ceco,
+    fp.moneda,
+    fp.monto_estimado,
+    coalesce(fp.fecha_factura, fp.created_at::date) < current_date - 60 as vencida
+  from public.facturas_preregistradas fp
+  left join public.ordenes_internas oi on oi.id = fp.id_oi
+  where fp.activo
+    and not exists (select 1 from public.gastos g where g.id_factura_preregistrada = fp.id)
+)
+select
+  public.fy_de_fecha(p.fecha)                                        as fy,
+  extract(month from p.fecha)::smallint                              as mes,
+  public.trimestre_fy(extract(month from p.fecha)::smallint)         as trimestre,
+  p.id_oi,
+  p.id_ceco,
+  coalesce(sum(p.monto_estimado) filter (
+    where not p.vencida and p.moneda = 'USD'), 0)                    as preregistrado_usd,
+  count(*) filter (where not p.vencida and p.moneda = 'USD')         as facturas_usd,
+  count(*) filter (where not p.vencida and p.moneda <> 'USD')        as facturas_bs,
+  count(*) filter (where p.vencida)                                  as facturas_vencidas,
+  coalesce(sum(p.monto_estimado) filter (
+    where p.vencida and p.moneda = 'USD'), 0)                        as vencidas_usd
+from pendientes p
+group by 1, 2, 3, 4, 5;
+
+alter view public.v_preregistrado_mensual set (security_invoker = on);
+
+comment on view public.v_preregistrado_mensual is
+  'Facturas pre-registradas sin cruzar con SAP, por unidad y mes. Informativo: nunca se descuenta del disponible.';
+
+-- ---------------------------------------------------------------------------
+-- 17c — limpieza (bloque propio, DESPUÉS del deploy de la app)
+-- ---------------------------------------------------------------------------
+-- La versión anterior de la app todavía las usa: borrarlas antes del deploy
+-- rompería Fondos y Facturas mientras tanto.
+drop view if exists public.v_comprometido_trimestre;
+drop function if exists public.disponibilidad_trimestral(smallint, date);
