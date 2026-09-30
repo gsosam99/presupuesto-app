@@ -3,9 +3,20 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { BotonEliminarSolicitud } from "@/components/solicitudes/BotonEliminarSolicitud";
 import { Button } from "@/components/ui/Button";
 import { AYUDA, CONTROL, ETIQUETA } from "@/components/ui/estilos";
 import type { EstadoSolicitud, TipoSolicitud } from "@/types";
+
+const MENSAJE_APROBADA: Record<TipoSolicitud, string> = {
+  extra_plan:
+    "Aprobada: sus líneas ya están cargadas como extra plan y suman como suplemento a los fondos.",
+  reclasificacion:
+    "Aprobada: los montos salen de la orden de origen (devolución) y entran a la de destino (suplemento).",
+  provision:
+    "Aprobada: al cierre del trimestre ese monto no se retira; pasa al trimestre siguiente, hasta lo que efectivamente sobró.",
+  ahorro: "Aprobada: los montos se devuelven a finanzas y ya no cuentan como disponibles.",
+};
 
 interface Props {
   id: string;
@@ -63,7 +74,7 @@ export function AccionesSolicitud({
     <div className="ui-card p-4">
       <h2 className="ui-section-title">Acciones</h2>
 
-      {tipo === "extra_plan" && (
+      {(tipo === "extra_plan" || tipo === "reclasificacion" || tipo === "ahorro") && (
         <a
           href={`/api/solicitudes/${id}/excel`}
           className="mt-3 inline-flex rounded-md border border-[var(--line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--blue)] hover:bg-[var(--line-soft)]"
@@ -122,7 +133,7 @@ export function AccionesSolicitud({
                   onClick={() => void cambiar("aprobada")}
                   className="rounded-md bg-[var(--ok)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
                 >
-                  Aprobar y cargar al presupuesto
+                  {tipo === "extra_plan" ? "Aprobar y cargar al presupuesto" : "Aprobar"}
                 </button>
                 <button
                   type="button"
@@ -151,9 +162,7 @@ export function AccionesSolicitud({
       {estado === "aprobada" && (
         <div className="mt-4">
           <p className="rounded-md bg-[rgba(30,138,138,0.1)] px-3 py-2 text-sm text-[var(--ok)]">
-            {tipo === "extra_plan"
-              ? "Aprobada: sus líneas ya están cargadas como extra plan y suman a los fondos disponibles."
-              : "Aprobada: el sobrante de ese trimestre se arrastra al siguiente."}
+            {MENSAJE_APROBADA[tipo]}
           </p>
           {puedeResolver && (
             <>
@@ -169,7 +178,7 @@ export function AccionesSolicitud({
               <p className={AYUDA}>
                 {tipo === "extra_plan"
                   ? "Descarta del presupuesto las líneas que había cargado."
-                  : "El sobrante vuelve a perderse."}
+                  : "Deja de afectar los fondos hasta que se vuelva a aprobar."}
               </p>
             </>
           )}
@@ -186,6 +195,17 @@ export function AccionesSolicitud({
         >
           Reabrir como borrador
         </Button>
+      )}
+
+      {(estado === "aprobada" ? puedeResolver : puedeGestionar) && (
+        <div className="mt-6 border-t border-[var(--line-soft)] pt-3">
+          <BotonEliminarSolicitud
+            id={id}
+            aprobada={estado === "aprobada"}
+            cargaPresupuesto={tipo === "extra_plan"}
+            redirigirA="/solicitudes"
+          />
+        </div>
       )}
 
       {error && (

@@ -1,10 +1,12 @@
 import Link from "next/link";
 
+import { BotonEliminarSolicitud } from "@/components/solicitudes/BotonEliminarSolicitud";
 import { obtenerRol } from "@/lib/auth";
 import { etiquetaTrimestre, fyEtiqueta } from "@/lib/fiscal";
 import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { moneda } from "@/lib/format";
 import { tienePermiso } from "@/lib/permisos";
+import { etiquetaTipoSolicitud } from "@/lib/solicitudes";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { EstadoSolicitud, TipoSolicitud } from "@/types";
 
@@ -32,7 +34,9 @@ const ESTILO_ESTADO: Record<EstadoSolicitud, string> = {
 
 export default async function SolicitudesPage() {
   const supabase = await createSupabaseServerClient();
-  const puedeCrear = tienePermiso(await obtenerRol(), "solicitudes:crear");
+  const rol = await obtenerRol();
+  const puedeCrear = tienePermiso(rol, "solicitudes:crear");
+  const puedeResolver = tienePermiso(rol, "solicitudes:resolver");
   const fy = await obtenerFySeleccionado();
 
   const [solicitudes, ois] = await Promise.all([
@@ -60,27 +64,19 @@ export default async function SolicitudesPage() {
           <p className="ui-eyebrow">Gestión de presupuesto</p>
           <h1 className="ui-title">Solicitudes</h1>
           <p className="ui-lead">
-            Extra plan y arrastres (prórrogas) de sobrante. La app arma el archivo para finanzas y deja el
-            pedido pendiente; cuando Charles y finanzas aprueban por fuera, lo marcas como aprobado
-            y los fondos entran al presupuesto.
+            Extra plan, reclasificaciones, provisiones y ahorros. La app arma el archivo para
+            finanzas y deja el pedido pendiente; cuando Charles y finanzas aprueban por fuera, lo
+            marcas como aprobado y recién ahí afecta los fondos.
           </p>
         </div>
 
         {puedeCrear && (
-          <div className="flex gap-2">
-            <Link
-              href={`/solicitudes/nueva?tipo=extra_plan&fy=${fy}`}
-              className="rounded-md bg-[var(--navy)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
-            >
-              Nuevo extra plan
-            </Link>
-            <Link
-              href={`/solicitudes/nueva?tipo=prorroga&fy=${fy}`}
-              className="rounded-md border border-[var(--line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--line-soft)]"
-            >
-              Nuevo arrastre (prórroga)
-            </Link>
-          </div>
+          <Link
+            href={`/solicitudes/nueva?fy=${fy}`}
+            className="rounded-md bg-[var(--navy)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+          >
+            Nueva solicitud
+          </Link>
         )}
       </header>
 
@@ -101,7 +97,7 @@ export default async function SolicitudesPage() {
       <section className="mt-8">
         {filas.length === 0 ? (
           <p className="ui-card px-4 py-10 text-center text-sm text-[var(--muted)]">
-            Todavía no hay solicitudes. Empieza por una de extra plan o un arrastre (prórroga).
+            Todavía no hay solicitudes en este año fiscal.
           </p>
         ) : (
           <div className="ui-card overflow-x-auto">
@@ -115,6 +111,9 @@ export default async function SolicitudesPage() {
                   <th className="r">Monto</th>
                   <th>Estado</th>
                   <th>Creada</th>
+                  <th>
+                    <span className="sr-only">Acciones</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -128,7 +127,7 @@ export default async function SolicitudesPage() {
                         {f.titulo}
                       </Link>
                     </td>
-                    <td>{f.tipo === "extra_plan" ? "Extra plan" : "Arrastre (prórroga)"}</td>
+                    <td>{etiquetaTipoSolicitud(f.tipo)}</td>
                     <td className="font-mono text-xs">
                       {f.id_oi ? (codigoPorOi.get(f.id_oi) ?? "—") : "—"}
                     </td>
@@ -150,6 +149,15 @@ export default async function SolicitudesPage() {
                     </td>
                     <td className="whitespace-nowrap text-xs">
                       {new Date(f.created_at).toLocaleDateString("es-VE")}
+                    </td>
+                    <td className="whitespace-nowrap text-right">
+                      {(f.estado === "aprobada" ? puedeResolver : puedeCrear) && (
+                        <BotonEliminarSolicitud
+                          id={f.id}
+                          aprobada={f.estado === "aprobada"}
+                          cargaPresupuesto={f.tipo === "extra_plan"}
+                        />
+                      )}
                     </td>
                   </tr>
                 ))}

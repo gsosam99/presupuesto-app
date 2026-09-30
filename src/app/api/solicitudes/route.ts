@@ -16,11 +16,17 @@ const lineaSchema = z.object({
   responsable: z.string().nullable().optional(),
 });
 
+/** Tipos que se piden por líneas de mes + monto. */
+const TIPOS_CON_LINEAS: ReadonlySet<string> = new Set(["extra_plan", "reclasificacion", "ahorro"]);
+
 const cuerpoSchema = z
   .object({
-    tipo: z.enum(["extra_plan", "prorroga"]),
+    tipo: z.enum(["extra_plan", "reclasificacion", "provision", "ahorro"]),
     id_oi: z.string().nullable().optional(),
     id_ceco: z.string().nullable().optional(),
+    /** Solo reclasificación: la unidad que recibe los fondos. */
+    id_oi_destino: z.string().nullable().optional(),
+    id_ceco_destino: z.string().nullable().optional(),
     fy: z.number(),
     trimestre: z.number().nullable().optional(),
     titulo: z.string().trim().min(1, "La solicitud necesita un título"),
@@ -35,34 +41,44 @@ const cuerpoSchema = z
         message: "Indica la Orden Interna (o el Centro de Costo) afectado",
       });
     }
-    if (cuerpo.tipo === "extra_plan" && (cuerpo.lineas ?? []).length === 0) {
+    if (TIPOS_CON_LINEAS.has(cuerpo.tipo) && (cuerpo.lineas ?? []).length === 0) {
       ctx.addIssue({
         code: "custom",
-        message: "El extra plan necesita al menos una línea con mes y monto",
+        message: "La solicitud necesita al menos una línea con mes y monto",
       });
     }
-    if (cuerpo.tipo === "prorroga") {
+    if (cuerpo.tipo === "reclasificacion") {
+      const origen = cuerpo.id_oi ?? cuerpo.id_ceco;
+      const destino = cuerpo.id_oi_destino ?? cuerpo.id_ceco_destino;
+      if (!destino) {
+        ctx.addIssue({ code: "custom", message: "Indica la Orden Interna de destino" });
+      } else if (destino === origen) {
+        ctx.addIssue({ code: "custom", message: "El origen y el destino deben ser distintos" });
+      }
+    }
+    if (cuerpo.tipo === "provision") {
       if (!cuerpo.trimestre) {
         ctx.addIssue({
           code: "custom",
-          message: "La prórroga necesita el trimestre cuyo sobrante quieres conservar",
+          message: "La provisión necesita el trimestre que se provisiona",
         });
       }
       if (!cuerpo.monto_solicitado || cuerpo.monto_solicitado <= 0) {
-        ctx.addIssue({ code: "custom", message: "Indica el monto a conservar" });
+        ctx.addIssue({ code: "custom", message: "Indica el monto a provisionar" });
       }
-      // El sobrante de un trimestre que todavía no empezó no existe: el
-      // arrastre se pide sobre el trimestre en curso (preventivo) o uno cerrado.
+      // Un trimestre que todavía no empezó no tiene servicios recibidos que
+      // provisionar: se declara sobre el trimestre en curso o uno cerrado.
       if (cuerpo.trimestre && !trimestreIniciado(cuerpo.fy, cuerpo.trimestre)) {
         ctx.addIssue({
           code: "custom",
-          message: "Ese trimestre todavía no empezó: el arrastre se pide sobre el trimestre en curso o uno cerrado",
+          message:
+            "Ese trimestre todavía no empezó: la provisión se declara sobre el trimestre en curso o uno cerrado",
         });
       }
     }
   });
 
-/** Alta de una solicitud (extra plan o prórroga). Nace siempre en borrador. */
+/** Alta de una solicitud. Nace siempre en borrador. */
 export async function POST(request: Request): Promise<Response> {
   try {
     const supabase = await createSupabaseServerClient();
@@ -88,11 +104,13 @@ export async function POST(request: Request): Promise<Response> {
         id_oi: cuerpo.id_oi ?? null,
         id_ceco: cuerpo.id_ceco ?? null,
         fy: cuerpo.fy,
-        trimestre: tipo === "prorroga" ? cuerpo.trimestre : null,
+        id_oi_destino: tipo === "reclasificacion" ? (cuerpo.id_oi_destino ?? null) : null,
+        id_ceco_destino: tipo === "reclasificacion" ? (cuerpo.id_ceco_destino ?? null) : null,
+        trimestre: tipo === "provision" ? cuerpo.trimestre : null,
         titulo: cuerpo.titulo,
         justificacion: cuerpo.justificacion?.trim() || null,
         monto_solicitado:
-          tipo === "prorroga"
+          tipo === "provision"
             ? cuerpo.monto_solicitado
             : lineas.reduce((s, l) => s + l.monto, 0),
         creada_por: auth.user.id,
@@ -105,7 +123,7 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ error: "No se pudo crear la solicitud." }, { status: 400 });
     }
 
-    if (tipo === "extra_plan") {
+    if (TIPOS_CON_LINEAS.has(tipo)) {
       const { error: errorLineas } = await supabase.from("solicitud_lineas").insert(
         lineas.map((l) => ({
           id_solicitud: solicitud.id as string,

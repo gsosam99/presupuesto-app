@@ -46,7 +46,37 @@ interface Props {
   ceco?: { id: string; etiqueta: string };
   trimestreInicial?: number;
   montoInicial?: number;
+  /** Mes con el que arranca la primera línea (ahorro, reclasificación). */
+  mesInicial?: number;
 }
+
+/** Tipos de solicitud con la explicación que ve el usuario al elegir. */
+const TIPOS: ReadonlyArray<{ valor: TipoSolicitud; etiqueta: string; ayuda: string }> = [
+  {
+    valor: "extra_plan",
+    etiqueta: "Extra plan",
+    ayuda: "Pedir fondos adicionales. Aprobado, suma como suplemento.",
+  },
+  {
+    valor: "reclasificacion",
+    etiqueta: "Reclasificación",
+    ayuda: "Mover fondos de esta orden a otra: devolución en el origen, suplemento en el destino.",
+  },
+  {
+    valor: "provision",
+    etiqueta: "Provisión",
+    ayuda:
+      "El servicio ya se recibió pero falta la factura: reserva ese monto para que no se retire al cierre del trimestre.",
+  },
+  {
+    valor: "ahorro",
+    etiqueta: "Ahorro",
+    ayuda: "Fondos que no se usarán: se devuelven a finanzas antes del cierre.",
+  },
+];
+
+/** Tipos que se piden por líneas de mes + monto. */
+const CON_LINEAS: ReadonlySet<TipoSolicitud> = new Set(["extra_plan", "reclasificacion", "ahorro"]);
 
 function lineaVacia(mes: number): Linea {
   return {
@@ -69,6 +99,7 @@ export function FormularioSolicitud({
   ceco,
   trimestreInicial,
   montoInicial,
+  mesInicial,
 }: Props) {
   const router = useRouter();
 
@@ -78,14 +109,17 @@ export function FormularioSolicitud({
   const [justificacion, setJustificacion] = useState("");
   const [trimestre, setTrimestre] = useState(trimestreInicial ?? 1);
   const [monto, setMonto] = useState(montoInicial ? String(montoInicial) : "");
-  const [lineas, setLineas] = useState<Linea[]>([lineaVacia(MESES_FY[0])]);
+  const [idOiDestino, setIdOiDestino] = useState("");
+  const mesDefecto = mesInicial && MESES_FY.includes(mesInicial) ? mesInicial : MESES_FY[0];
+  const [lineas, setLineas] = useState<Linea[]>([lineaVacia(mesDefecto)]);
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const total = useMemo(
-    () => lineas.reduce((s, l) => s + (Number(l.monto) || 0), 0),
-    [lineas],
-  );
+  // El extra plan lleva el detalle contable que pide finanzas; reclasificación
+  // y ahorro solo necesitan mes, monto y un detalle.
+  const completa = tipo === "extra_plan";
+
+  const total = useMemo(() => lineas.reduce((s, l) => s + (Number(l.monto) || 0), 0), [lineas]);
 
   function editarLinea(i: number, campo: keyof Linea, valor: string) {
     setLineas((prev) =>
@@ -107,25 +141,25 @@ export function FormularioSolicitud({
         tipo,
         id_oi: ceco ? null : idOi || null,
         id_ceco: ceco?.id ?? null,
+        id_oi_destino: tipo === "reclasificacion" ? idOiDestino || null : null,
         fy,
-        trimestre: tipo === "prorroga" ? trimestre : null,
+        trimestre: tipo === "provision" ? trimestre : null,
         titulo,
         justificacion,
-        monto_solicitado: tipo === "prorroga" ? Number(monto) || null : null,
-        lineas:
-          tipo === "extra_plan"
-            ? lineas
-                .filter((l) => Number(l.monto) > 0)
-                .map((l) => ({
-                  mes: l.mes,
-                  monto: Number(l.monto),
-                  cuenta_contable: l.cuenta_contable,
-                  descripcion_cuenta: l.descripcion_cuenta,
-                  tipo_gasto: l.tipo_gasto,
-                  detalle_gasto: l.detalle_gasto,
-                  responsable: l.responsable,
-                }))
-            : [],
+        monto_solicitado: tipo === "provision" ? Number(monto) || null : null,
+        lineas: CON_LINEAS.has(tipo)
+          ? lineas
+              .filter((l) => Number(l.monto) > 0)
+              .map((l) => ({
+                mes: l.mes,
+                monto: Number(l.monto),
+                cuenta_contable: l.cuenta_contable,
+                descripcion_cuenta: l.descripcion_cuenta,
+                tipo_gasto: l.tipo_gasto,
+                detalle_gasto: l.detalle_gasto,
+                responsable: l.responsable,
+              }))
+          : [],
       }),
     });
 
@@ -145,25 +179,28 @@ export function FormularioSolicitud({
     <form onSubmit={handleSubmit} className="ui-card p-5">
       <fieldset>
         <legend className={ETIQUETA}>Tipo de solicitud</legend>
-        <div className="mt-2 flex flex-wrap gap-4">
-          {(
-            [
-              ["extra_plan", "Extra plan — pedir fondos adicionales"],
-              ["prorroga", "Arrastre (prórroga) — conservar el sobrante de un trimestre"],
-            ] as const
-          ).map(([valor, etiqueta]) => (
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {TIPOS.map((t) => (
             <label
-              key={valor}
-              className="flex items-center gap-2 text-sm text-[var(--ink)]"
+              key={t.valor}
+              className={
+                "flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm " +
+                (tipo === t.valor
+                  ? "border-[var(--blue)] bg-[rgba(46,117,182,0.06)]"
+                  : "border-[var(--line)] bg-white")
+              }
             >
               <input
                 type="radio"
                 name="tipo"
-                checked={tipo === valor}
-                onChange={() => setTipo(valor)}
-                className="h-4 w-4"
+                checked={tipo === t.valor}
+                onChange={() => setTipo(t.valor)}
+                className="mt-0.5 h-4 w-4"
               />
-              {etiqueta}
+              <span>
+                <span className="font-semibold text-[var(--ink)]">{t.etiqueta}</span>
+                <span className="block text-xs text-[var(--muted)]">{t.ayuda}</span>
+              </span>
             </label>
           ))}
         </div>
@@ -185,7 +222,7 @@ export function FormularioSolicitud({
         ) : (
           <div>
             <label htmlFor="id_oi" className={ETIQUETA}>
-              Orden Interna *
+              {tipo === "reclasificacion" ? "Orden Interna de origen *" : "Orden Interna *"}
             </label>
             <select
               id="id_oi"
@@ -206,6 +243,33 @@ export function FormularioSolicitud({
           </div>
         )}
 
+        {tipo === "reclasificacion" && (
+          <div>
+            <label htmlFor="id_oi_destino" className={ETIQUETA}>
+              Orden Interna de destino *
+            </label>
+            <select
+              id="id_oi_destino"
+              required
+              value={idOiDestino}
+              onChange={(e) => setIdOiDestino(e.target.value)}
+              className={`mt-1 ${CONTROL}`}
+            >
+              <option value="">— elegir —</option>
+              {ordenesInternas
+                .filter((o) => o.id !== idOi)
+                .map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.codigo}
+                    {o.nombre ? ` — ${o.nombre}` : ""}
+                    {o.vigencia ? ` (${o.vigencia})` : ""}
+                  </option>
+                ))}
+            </select>
+            <p className={AYUDA}>Recibe los fondos como suplemento en los meses indicados.</p>
+          </div>
+        )}
+
         <div>
           <label htmlFor="titulo" className={ETIQUETA}>
             Título *
@@ -220,11 +284,11 @@ export function FormularioSolicitud({
         </div>
       </div>
 
-      {tipo === "prorroga" && (
+      {tipo === "provision" && (
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div>
             <label htmlFor="trimestre" className={ETIQUETA}>
-              Trimestre cuyo sobrante quieres conservar *
+              Trimestre que se provisiona *
             </label>
             <select
               id="trimestre"
@@ -239,13 +303,13 @@ export function FormularioSolicitud({
               ))}
             </select>
             <p className={AYUDA}>
-              El trimestre en curso (arrastre preventivo, antes del cierre) o uno ya
-              cerrado. Aprobada, ese monto queda disponible en el trimestre siguiente.
+              El trimestre en curso o uno ya cerrado. Aprobada, al cierre ese monto no se retira:
+              pasa al trimestre siguiente para pagar la factura pendiente.
             </p>
           </div>
           <div>
             <label htmlFor="monto" className={ETIQUETA}>
-              Monto a conservar (USD) *
+              Monto a provisionar (USD) *
             </label>
             <input
               id="monto"
@@ -260,12 +324,18 @@ export function FormularioSolicitud({
         </div>
       )}
 
-      {tipo === "extra_plan" && (
+      {CON_LINEAS.has(tipo) && (
         <section className="mt-6">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="ui-section-title">Líneas del extra plan</h2>
+            <h2 className="ui-section-title">
+              {tipo === "extra_plan"
+                ? "Líneas del extra plan"
+                : tipo === "reclasificacion"
+                  ? "Montos a reclasificar por mes"
+                  : "Montos a devolver por mes"}
+            </h2>
             <p className="text-sm text-[var(--muted)]">
-              Total solicitado:{" "}
+              Total:{" "}
               <span className="font-bold tabular-nums text-[var(--ink)]">
                 {total.toLocaleString("es-VE", { minimumFractionDigits: 2 })}
               </span>
@@ -273,16 +343,16 @@ export function FormularioSolicitud({
           </div>
 
           <div className="mt-3 overflow-x-auto rounded-md border border-[var(--line)]">
-            <table className="ui-table min-w-[60rem] text-xs">
+            <table className={`ui-table text-xs ${completa ? "min-w-[60rem]" : "min-w-[32rem]"}`}>
               <thead>
                 <tr>
                   <th className="w-28">Mes</th>
                   <th className="w-28">Monto</th>
-                  <th>Tipo de gasto</th>
-                  <th>Detalle del gasto</th>
-                  <th className="w-32">N.º de cuenta</th>
-                  <th>Descripción de cuenta</th>
-                  <th className="w-36">Responsable</th>
+                  {completa && <th>Tipo de gasto</th>}
+                  <th>{completa ? "Detalle del gasto" : "Detalle"}</th>
+                  {completa && <th className="w-32">N.º de cuenta</th>}
+                  {completa && <th>Descripción de cuenta</th>}
+                  {completa && <th className="w-36">Responsable</th>}
                   <th className="w-10" />
                 </tr>
               </thead>
@@ -313,14 +383,16 @@ export function FormularioSolicitud({
                         className={CONTROL_COMPACTO}
                       />
                     </td>
-                    <td>
-                      <input
-                        value={l.tipo_gasto}
-                        aria-label="Tipo de gasto"
-                        onChange={(e) => editarLinea(i, "tipo_gasto", e.target.value)}
-                        className={CONTROL_COMPACTO}
-                      />
-                    </td>
+                    {completa && (
+                      <td>
+                        <input
+                          value={l.tipo_gasto}
+                          aria-label="Tipo de gasto"
+                          onChange={(e) => editarLinea(i, "tipo_gasto", e.target.value)}
+                          className={CONTROL_COMPACTO}
+                        />
+                      </td>
+                    )}
                     <td>
                       <input
                         value={l.detalle_gasto}
@@ -329,40 +401,40 @@ export function FormularioSolicitud({
                         className={CONTROL_COMPACTO}
                       />
                     </td>
-                    <td>
-                      <input
-                        value={l.cuenta_contable}
-                        aria-label="Número de cuenta"
-                        onChange={(e) => editarLinea(i, "cuenta_contable", e.target.value)}
-                        className={CONTROL_COMPACTO}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        value={l.descripcion_cuenta}
-                        aria-label="Descripción de cuenta"
-                        onChange={(e) =>
-                          editarLinea(i, "descripcion_cuenta", e.target.value)
-                        }
-                        className={CONTROL_COMPACTO}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        value={l.responsable}
-                        aria-label="Responsable"
-                        onChange={(e) => editarLinea(i, "responsable", e.target.value)}
-                        className={CONTROL_COMPACTO}
-                      />
-                    </td>
+                    {completa && (
+                      <>
+                        <td>
+                          <input
+                            value={l.cuenta_contable}
+                            aria-label="Número de cuenta"
+                            onChange={(e) => editarLinea(i, "cuenta_contable", e.target.value)}
+                            className={CONTROL_COMPACTO}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            value={l.descripcion_cuenta}
+                            aria-label="Descripción de cuenta"
+                            onChange={(e) => editarLinea(i, "descripcion_cuenta", e.target.value)}
+                            className={CONTROL_COMPACTO}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            value={l.responsable}
+                            aria-label="Responsable"
+                            onChange={(e) => editarLinea(i, "responsable", e.target.value)}
+                            className={CONTROL_COMPACTO}
+                          />
+                        </td>
+                      </>
+                    )}
                     <td>
                       {lineas.length > 1 && (
                         <button
                           type="button"
                           aria-label="Quitar línea"
-                          onClick={() =>
-                            setLineas((prev) => prev.filter((_, j) => j !== i))
-                          }
+                          onClick={() => setLineas((prev) => prev.filter((_, j) => j !== i))}
                           className="text-[var(--muted)] hover:text-[var(--bad)]"
                         >
                           ✕
@@ -379,15 +451,14 @@ export function FormularioSolicitud({
             type="button"
             variante="secundario"
             className="mt-3"
-            onClick={() => setLineas((prev) => [...prev, lineaVacia(MESES_FY[0])])}
+            onClick={() => setLineas((prev) => [...prev, lineaVacia(mesDefecto)])}
           >
             Agregar línea
           </Button>
 
           <p className={AYUDA}>
-            Los meses se agrupan solos en su trimestre fiscal ({mesesDeTrimestre(1)
-              .map(nombreMes)
-              .join("/")} = T1, y así).
+            Los meses se agrupan solos en su trimestre fiscal (
+            {mesesDeTrimestre(1).map(nombreMes).join("/")} = T1, y así).
           </p>
         </section>
       )}

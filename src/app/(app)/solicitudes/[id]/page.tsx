@@ -6,6 +6,7 @@ import { obtenerRol } from "@/lib/auth";
 import { etiquetaTrimestre, fyEtiqueta, nombreMes, trimestreDeMes } from "@/lib/fiscal";
 import { moneda } from "@/lib/format";
 import { tienePermiso } from "@/lib/permisos";
+import { etiquetaTipoSolicitud, TIPOS_CON_LINEAS } from "@/lib/solicitudes";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { EstadoSolicitud, TipoSolicitud } from "@/types";
 
@@ -35,7 +36,7 @@ export default async function SolicitudPage({
   const { data: solicitud, error: errorSolicitud } = await supabase
     .from("solicitudes")
     .select(
-      "id, tipo, estado, fy, trimestre, titulo, justificacion, monto_solicitado, referencia_aprobacion, nota_resolucion, created_at, enviada_at, resuelta_at, id_oi",
+      "id, tipo, estado, fy, trimestre, titulo, justificacion, monto_solicitado, referencia_aprobacion, nota_resolucion, created_at, enviada_at, resuelta_at, id_oi, id_ceco, id_oi_destino",
     )
     .eq("id", id)
     .maybeSingle();
@@ -55,7 +56,7 @@ export default async function SolicitudPage({
   const tipo = solicitud.tipo as TipoSolicitud;
   const estado = solicitud.estado as EstadoSolicitud;
 
-  const [lineasRes, oiRes] = await Promise.all([
+  const [lineasRes, oiRes, destinoRes, cecoRes] = await Promise.all([
     supabase
       .from("solicitud_lineas")
       .select(
@@ -70,6 +71,20 @@ export default async function SolicitudPage({
           .eq("id", solicitud.id_oi as string)
           .maybeSingle()
       : Promise.resolve({ data: null }),
+    solicitud.id_oi_destino
+      ? supabase
+          .from("ordenes_internas")
+          .select("codigo_oi, nombre")
+          .eq("id", solicitud.id_oi_destino as string)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    solicitud.id_ceco
+      ? supabase
+          .from("cecos")
+          .select("codigo_sap")
+          .eq("id", solicitud.id_ceco as string)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
 
   const lineas = (lineasRes.data ?? []) as unknown as Linea[];
@@ -82,7 +97,7 @@ export default async function SolicitudPage({
           <Link href="/solicitudes" className="hover:underline">
             Solicitudes
           </Link>{" "}
-          · {tipo === "extra_plan" ? "Extra plan" : "Arrastre (prórroga)"}
+          · {etiquetaTipoSolicitud(tipo)}
         </p>
         <h1 className="ui-title">{solicitud.titulo as string}</h1>
         <p className="ui-lead">
@@ -91,6 +106,8 @@ export default async function SolicitudPage({
             ? ` · ${etiquetaTrimestre(Number(solicitud.trimestre))}`
             : ""}
           {oiRes.data?.codigo_oi ? ` · OI ${oiRes.data.codigo_oi as string}` : ""}
+          {cecoRes.data?.codigo_sap ? ` · CeCo ${cecoRes.data.codigo_sap as string}` : ""}
+          {destinoRes.data?.codigo_oi ? ` → OI ${destinoRes.data.codigo_oi as string}` : ""}
           {" · estado "}
           <strong>{estado}</strong>
         </p>
@@ -98,10 +115,16 @@ export default async function SolicitudPage({
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_20rem]">
         <div className="space-y-6">
-          {tipo === "extra_plan" ? (
+          {TIPOS_CON_LINEAS.has(tipo) ? (
             <section className="ui-card overflow-hidden">
               <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
-                <h2 className="ui-section-title">Líneas solicitadas</h2>
+                <h2 className="ui-section-title">
+                  {tipo === "extra_plan"
+                    ? "Líneas solicitadas"
+                    : tipo === "reclasificacion"
+                      ? "Montos que se reclasifican"
+                      : "Montos que se devuelven"}
+                </h2>
                 <p className="text-sm font-bold tabular-nums text-[var(--ink)]">
                   {moneda.format(total)}
                 </p>
@@ -139,13 +162,14 @@ export default async function SolicitudPage({
             </section>
           ) : (
             <section className="ui-card p-4">
-              <h2 className="ui-section-title">Monto a conservar</h2>
+              <h2 className="ui-section-title">Monto provisionado</h2>
               <p className="mt-2 text-3xl font-extrabold tabular-nums text-[var(--ink)]">
                 {moneda.format(Number(solicitud.monto_solicitado ?? 0))}
               </p>
               <p className="mt-2 text-sm text-[var(--muted)]">
-                Sobrante de {etiquetaTrimestre(Number(solicitud.trimestre))} que, aprobado,
-                queda disponible en el trimestre siguiente en vez de perderse.
+                Servicio recibido en {etiquetaTrimestre(Number(solicitud.trimestre))} con la
+                factura pendiente. Aprobada, al cierre ese monto no se retira: pasa al
+                trimestre siguiente, hasta lo que efectivamente sobró.
               </p>
             </section>
           )}

@@ -14,6 +14,8 @@ import type { TipoSolicitud } from "@/types";
 export const metadata = { title: "Nueva solicitud — IENN Gastos App" };
 export const dynamic = "force-dynamic";
 
+const TIPOS: readonly TipoSolicitud[] = ["extra_plan", "reclasificacion", "provision", "ahorro"];
+
 export default async function NuevaSolicitudPage({
   searchParams,
 }: {
@@ -24,17 +26,18 @@ export default async function NuevaSolicitudPage({
     fy?: string;
     trimestre?: string;
     monto?: string;
+    mes?: string;
   }>;
 }) {
   const params = await searchParams;
   await requireRol("solicitudes:crear");
-  const tipo: TipoSolicitud = params.tipo === "prorroga" ? "prorroga" : "extra_plan";
+  const tipo: TipoSolicitud = TIPOS.find((t) => t === params.tipo) ?? "extra_plan";
   const fy = Number(params.fy) || fyActual();
 
   const supabase = await createSupabaseServerClient();
   const [{ data, error }, cecoRes] = await Promise.all([
     obtenerOrdenesInternasActivas(supabase),
-    // Arrastre de una unidad presupuestada por CeCo (sin OI): viene de Fondos.
+    // Solicitud de una unidad presupuestada por CeCo (sin OI): viene de Fondos.
     params.ceco
       ? supabase.from("cecos").select("id, codigo_sap, nombre").eq("id", params.ceco).maybeSingle()
       : Promise.resolve(null),
@@ -64,9 +67,9 @@ export default async function NuevaSolicitudPage({
         </p>
         <h1 className="ui-title">Nueva solicitud · {fyEtiqueta(fy)}</h1>
         <p className="ui-lead">
-          Arma acá el pedido y descarga el archivo para finanzas. Queda como solicitud
-          pendiente: recién cuando Charles y finanzas aprueben, la marcas como aprobada y{" "}
-          <strong>ahí se carga al presupuesto</strong>.
+          Extra plan, reclasificación, provisión o ahorro. Queda como solicitud pendiente:
+          recién cuando Charles y finanzas aprueben, la marcas como aprobada y{" "}
+          <strong>ahí afecta los fondos</strong>.
         </p>
       </header>
 
@@ -85,6 +88,7 @@ export default async function NuevaSolicitudPage({
           ceco={ceco}
           trimestreInicial={params.trimestre ? Number(params.trimestre) : undefined}
           montoInicial={params.monto ? Number(params.monto) : undefined}
+          mesInicial={params.mes ? Number(params.mes) : undefined}
         />
       </section>
     </main>
