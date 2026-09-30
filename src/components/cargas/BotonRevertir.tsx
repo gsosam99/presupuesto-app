@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Modal";
 
 interface Props {
   idCarga: string;
@@ -83,11 +84,7 @@ export function BotonRevertir({ idCarga, nombreArchivo }: Props) {
     }
   }
 
-  const aBorrar = conteo
-    ? incluirRevisadas
-      ? conteo.total
-      : conteo.intactas
-    : 0;
+  const aBorrar = conteo ? (incluirRevisadas ? conteo.total : conteo.intactas) : 0;
 
   return (
     <>
@@ -100,98 +97,87 @@ export function BotonRevertir({ idCarga, nombreArchivo }: Props) {
       </button>
 
       {abierto && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => {
-            if (!trabajando) setAbierto(false);
-          }}
+        <Modal
+          titulo="Deshacer esta carga"
+          descripcion={<span className="break-all">{nombreArchivo}</span>}
+          onCerrar={() => setAbierto(false)}
+          bloqueado={trabajando}
+          ancho="md"
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="titulo-revertir"
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl"
-          >
-            <h2 id="titulo-revertir" className="text-lg font-semibold text-slate-900">
-              Deshacer esta carga
-            </h2>
-            <p className="mt-1 break-all text-sm text-slate-600">{nombreArchivo}</p>
+          {conteo === null && !error && (
+            <p className="mt-4 text-sm text-slate-500">Contando filas…</p>
+          )}
 
-            {conteo === null && !error && (
-              <p className="mt-4 text-sm text-slate-500">Contando filas…</p>
-            )}
-
-            {conteo && (
-              <div className="mt-4 space-y-3 text-sm text-slate-700">
-                <p>
-                  Esta carga insertó <strong>{conteo.total}</strong>{" "}
-                  {conteo.total === 1 ? "gasto" : "gastos"}.
-                </p>
-
-                {conteo.revisadas > 0 && (
-                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
-                    <p>
-                      <strong>{conteo.revisadas}</strong> ya pasaron por triaje: alguien las
-                      clasificó a mano. Por defecto se conservan.
-                    </p>
-                    <label className="mt-2 flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        checked={incluirRevisadas}
-                        onChange={(e) => setIncluirRevisadas(e.target.checked)}
-                        className="mt-0.5"
-                      />
-                      <span>Borrarlas también (se pierde esa clasificación)</span>
-                    </label>
-                  </div>
-                )}
-
-                <p className="rounded-md bg-rose-50 px-3 py-2 text-rose-800">
-                  Se borrarán <strong>{aBorrar}</strong>{" "}
-                  {aBorrar === 1 ? "gasto" : "gastos"}. No se puede deshacer.
-                </p>
-
-                <label className="block">
-                  <span className="text-xs text-slate-600">
-                    Escribe el nombre del archivo para confirmar
-                  </span>
-                  <input
-                    type="text"
-                    value={texto}
-                    onChange={(e) => setTexto(e.target.value)}
-                    placeholder={nombreArchivo}
-                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                  />
-                </label>
-              </div>
-            )}
-
-            {error && (
-              <p role="alert" className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                {error}
+          {conteo && (
+            <div className="mt-4 space-y-3 text-sm text-slate-700">
+              <p>
+                Esta carga insertó <strong>{conteo.total}</strong>{" "}
+                {conteo.total === 1 ? "gasto" : "gastos"}.
               </p>
-            )}
 
-            <div className="mt-5 flex justify-end gap-2">
-              <Button
-                type="button"
-                variante="secundario"
-                disabled={trabajando}
-                onClick={() => setAbierto(false)}
-              >
-                Cancelar
-              </Button>
-              <Button
-                type="button"
-                disabled={trabajando || texto !== nombreArchivo || aBorrar === 0}
-                onClick={() => void revertir()}
-              >
-                {trabajando ? "Borrando…" : `Borrar ${aBorrar}`}
-              </Button>
+              {conteo.revisadas > 0 && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
+                  <p>
+                    <strong>{conteo.revisadas}</strong> ya pasaron por triaje: alguien las clasificó
+                    a mano. Por defecto se conservan.
+                  </p>
+                  <label className="mt-2 flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={incluirRevisadas}
+                      onChange={(e) => setIncluirRevisadas(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>Borrarlas también (se pierde esa clasificación)</span>
+                  </label>
+                </div>
+              )}
+
+              <p className="rounded-md bg-rose-50 px-3 py-2 text-rose-800">
+                Se borrarán <strong>{aBorrar}</strong> {aBorrar === 1 ? "gasto" : "gastos"}. No se
+                puede deshacer.
+              </p>
+
+              <label className="block">
+                <span className="text-xs text-slate-600">
+                  Escribe el nombre del archivo para confirmar
+                </span>
+                <input
+                  type="text"
+                  value={texto}
+                  onChange={(e) => setTexto(e.target.value)}
+                  placeholder={nombreArchivo}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                />
+              </label>
             </div>
+          )}
+
+          {error && (
+            <p role="alert" className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {error}
+            </p>
+          )}
+
+          <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variante="secundario"
+              disabled={trabajando}
+              onClick={() => setAbierto(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variante="peligro"
+              disabled={trabajando || texto !== nombreArchivo || aBorrar === 0}
+              onClick={() => void revertir()}
+            >
+              {trabajando ? "Borrando…" : `Borrar ${aBorrar} ${aBorrar === 1 ? "gasto" : "gastos"}`}
+            </Button>
           </div>
-        </div>
+        </Modal>
       )}
     </>
   );

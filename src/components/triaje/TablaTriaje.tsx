@@ -411,7 +411,8 @@ export function TablaTriaje({
           />
         )}
 
-        <p className="text-xs text-slate-500">
+        {/* Atajos de teclado: en pantallas táctiles no aplican. */}
+        <p className="hidden text-xs text-slate-500 sm:block">
           <kbd className="rounded border border-slate-300 px-1">Enter</kbd> aprueba ·{" "}
           <kbd className="rounded border border-slate-300 px-1">⇧Enter</kbd> guarda ·{" "}
           <kbd className="rounded border border-slate-300 px-1">Ctrl</kbd>+

@@ -3,14 +3,17 @@ import type { ReactNode } from "react";
 const ANCHOS = {
   /** Búsqueda: toma el espacio que sobra. */
   flexible: "min-w-0 flex-1 basis-full sm:basis-64",
-  select: "w-full sm:w-48",
-  fecha: "w-full sm:w-40",
+  // En móvil, dos por fila: seis filtros apilados empujaban la tabla fuera
+  // de la pantalla. gap-x-3 = 0.75rem, de ahí el 50% − 0.375rem.
+  select: "w-[calc(50%-0.375rem)] sm:w-48",
+  fecha: "w-[calc(50%-0.375rem)] sm:w-40",
 } as const;
 
 /**
  * Barra de filtros de las tablas. Los campos se acomodan en una fila y saltan
  * de línea cuando no hay espacio, en vez de apretarse en una grilla fija que
- * se desborda del contenedor. En mobile cada campo ocupa el ancho completo.
+ * se desborda del contenedor. En móvil la búsqueda ocupa el ancho completo y
+ * el resto va de a dos por fila.
  */
 export function BarraFiltros({ children, className }: { children: ReactNode; className?: string }) {
   return (

@@ -92,6 +92,9 @@ interface Props {
   volverA?: string;
   /** Fecha de la última carga de SAP: el consumido es "al" esa fecha. */
   fechaDatosSap?: string | null;
+  /** Se muestra dentro de un Modal: sin marco propio y con acciones fijas al pie. */
+  enModal?: boolean;
+  onCancelar?: () => void;
 }
 
 /** Trimestre fiscal de una fecha ISO, o null. */
@@ -112,6 +115,8 @@ export function FormularioFactura({
   onGuardada,
   volverA,
   fechaDatosSap = null,
+  enModal = false,
+  onCancelar,
 }: Props) {
   const router = useRouter();
   const editando = inicial !== undefined;
@@ -259,7 +264,10 @@ export function FormularioFactura({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-lg border border-slate-200 bg-white p-4">
+    <form
+      onSubmit={handleSubmit}
+      className={enModal ? undefined : "rounded-lg border border-[var(--line)] bg-white p-4 sm:p-5"}
+    >
       {/* Identificación */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div>
@@ -291,19 +299,6 @@ export function FormularioFactura({
         </div>
 
         <div>
-          <label htmlFor="proveedor_codigo" className={ETIQUETA}>
-            N.º de cuenta proveedor o acreedor
-          </label>
-          <input
-            id="proveedor_codigo"
-            name="proveedor_codigo"
-            disabled={cruzada}
-            defaultValue={inicial?.proveedor_codigo ?? ""}
-            className={`mt-1 ${CONTROL} disabled:bg-slate-100 disabled:text-slate-600`}
-          />
-        </div>
-
-        <div>
           <label htmlFor="fecha_factura" className={ETIQUETA}>
             Fecha de la factura
           </label>
@@ -321,6 +316,19 @@ export function FormularioFactura({
               {etiquetaTrimestre(tDespues)}.
             </p>
           )}
+        </div>
+
+        <div>
+          <label htmlFor="proveedor_codigo" className={ETIQUETA}>
+            N.º de cuenta proveedor o acreedor
+          </label>
+          <input
+            id="proveedor_codigo"
+            name="proveedor_codigo"
+            disabled={cruzada}
+            defaultValue={inicial?.proveedor_codigo ?? ""}
+            className={`mt-1 ${CONTROL} disabled:bg-slate-100 disabled:text-slate-600`}
+          />
         </div>
 
         <div>
@@ -343,7 +351,7 @@ export function FormularioFactura({
           <p className={AYUDA}>Responsable del gasto. Se da de alta en Configuración → Equipo.</p>
         </div>
 
-        <div className="sm:col-span-2">
+        <div>
           <label htmlFor="texto_referencia" className={ETIQUETA}>
             Texto de referencia
           </label>
@@ -357,7 +365,7 @@ export function FormularioFactura({
       </div>
 
       {/* Destino: el CeCo sale de la OI real; la HZ, siempre de la OI */}
-      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <label htmlFor="id_ceco" className={ETIQUETA}>
             Centro de Costo
@@ -482,8 +490,8 @@ export function FormularioFactura({
             {fechaDatosSap
               ? `Datos de SAP al ${new Date(fechaDatosSap).toLocaleDateString("es-VE")}. `
               : ""}
-            Pre-registrado: facturas registradas en la app que SAP todavía no trajo. No se
-            descuenta del Disponible y desaparece cuando la factura cruza.
+            Pre-registrado: facturas registradas en la app que SAP todavía no trajo. No se descuenta
+            del Disponible y desaparece cuando la factura cruza.
           </p>
           {fondos.proyectado < 0 && (
             <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -589,7 +597,20 @@ export function FormularioFactura({
         <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{ok}</p>
       )}
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      {/* Dentro de un modal las acciones quedan fijas al pie: en un formulario
+          largo no hay que bajar hasta el final para guardar o cancelar. */}
+      <div
+        className={
+          enModal
+            ? "sticky bottom-0 -mx-5 -mb-5 mt-6 flex flex-col-reverse gap-2 border-t border-[var(--line)] bg-[var(--card)] px-5 py-3 sm:flex-row sm:justify-end"
+            : "mt-5 flex flex-wrap gap-2"
+        }
+      >
+        {enModal && onCancelar && (
+          <Button type="button" variante="secundario" disabled={enviando} onClick={onCancelar}>
+            Cancelar
+          </Button>
+        )}
         <Button type="submit" value="registrar" disabled={enviando || faltaOrden}>
           {enviando ? "Guardando…" : editando ? "Guardar cambios" : "Registrar factura"}
         </Button>

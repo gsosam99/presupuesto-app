@@ -1,5 +1,26 @@
 @import "tailwindcss";
 
+/* Todo contenedor con scroll propio es contexto de posicionamiento. Sin esto,
+ * los elementos absolutos de adentro (los .sr-only de los encabezados de
+ * tabla, por ejemplo) se ubican contra la página y no contra el contenedor:
+ * el overflow no los recorta y estiran el documento, que termina con scroll
+ * horizontal (se notaba detrás de los modales). Va en la capa base para que
+ * una utilidad explícita (fixed, sticky, absolute) siga ganando. */
+@layer base {
+  /* Reserva el espacio de la barra de scroll: al abrir un modal (que bloquea
+   * el scroll) la página no salta de lado. */
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  .overflow-auto,
+  .overflow-x-auto,
+  .overflow-y-auto,
+  .overflow-x-scroll {
+    position: relative;
+  }
+}
+
 /*
  * Identidad gráfica única para toda la app: los tokens son los del dashboard
  * aprobado por el equipo, así que las demás pantallas heredan exactamente la

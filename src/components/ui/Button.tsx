@@ -1,6 +1,7 @@
 import type { ButtonHTMLAttributes } from "react";
 
-type Variante = "primario" | "secundario";
+/** peligro: acciones destructivas (eliminar, borrar, deshacer). */
+type Variante = "primario" | "secundario" | "peligro";
 
 interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   variante?: Variante;
@@ -9,6 +10,8 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
 const ESTILOS: Record<Variante, string> = {
   primario:
     "bg-[var(--navy)] text-white hover:opacity-90 disabled:bg-[var(--line)] disabled:text-[var(--muted)]",
+  peligro:
+    "bg-[var(--bad)] text-white hover:opacity-90 disabled:bg-[var(--line)] disabled:text-[var(--muted)]",
   secundario:
     "bg-white text-[var(--ink)] border border-[var(--line)] hover:bg-[var(--line-soft)] disabled:text-[var(--muted)]",
 };

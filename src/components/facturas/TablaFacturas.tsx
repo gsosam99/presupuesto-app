@@ -229,7 +229,7 @@ export function TablaFacturas({ filas, edicion, estadoInicial = "todas" }: Props
             type="search"
             value={texto}
             onChange={(e) => reiniciarPagina(setTexto)(e.target.value)}
-            placeholder="Factura, n.º de orden, proveedor, texto…"
+            placeholder="Factura, orden, proveedor…"
             className={CONTROL_COMPACTO}
           />
         </CampoFiltro>
@@ -590,6 +590,8 @@ export function TablaFacturas({ filas, edicion, estadoInicial = "todas" }: Props
               moneda: editando.moneda,
               nota: editando.nota,
             }}
+            enModal
+            onCancelar={() => setEditando(null)}
             onGuardada={(mensaje) => {
               setEditando(null);
               avisos.exito(mensaje);
