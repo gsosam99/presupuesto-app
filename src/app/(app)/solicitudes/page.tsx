@@ -154,6 +154,7 @@ export default async function SolicitudesPage() {
                       {(f.estado === "aprobada" ? puedeResolver : puedeCrear) && (
                         <BotonEliminarSolicitud
                           id={f.id}
+                          titulo={f.titulo}
                           aprobada={f.estado === "aprobada"}
                           cargaPresupuesto={f.tipo === "extra_plan"}
                         />

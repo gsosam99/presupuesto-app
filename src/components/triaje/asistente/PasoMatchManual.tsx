@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useAvisos } from "@/components/ui/Avisos";
 import { CONTROL_COMPACTO } from "@/components/ui/estilos";
 import { moneda } from "@/lib/format";
 import type { Sugerencia } from "@/lib/ingesta/sugerenciasCruce";
@@ -28,7 +29,7 @@ export function PasoMatchManual({ gastos, sugerencias, facturas, puedeEditar }: 
   const router = useRouter();
   const [resueltos, setResueltos] = useState<Set<string>>(new Set());
   const [ocupado, setOcupado] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const avisos = useAvisos();
   const [pagina, setPagina] = useState(0);
   const [soloConSugerencia, setSoloConSugerencia] = useState(true);
   const [busqueda, setBusqueda] = useState<Record<string, string>>({});
@@ -51,7 +52,6 @@ export function PasoMatchManual({ gastos, sugerencias, facturas, puedeEditar }: 
 
   async function asociar(gasto: GastoLote, factura: FacturaSinCruzar) {
     setOcupado(gasto.id);
-    setError(null);
     try {
       // Aprobar sin proyecto dejaría un gasto contando en los KPIs sin dueño:
       // si ni la factura ni el gasto tienen HZ, se asocia y queda pendiente.
@@ -68,13 +68,18 @@ export function PasoMatchManual({ gastos, sugerencias, facturas, puedeEditar }: 
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setError(json.error ?? "No se pudo asociar la factura.");
+        avisos.error(json.error ?? "No se pudo asociar la factura.");
         return;
       }
       setResueltos((prev) => new Set([...prev, gasto.id]));
+      avisos.exito(
+        aprobar
+          ? `Factura ${factura.numero_factura} asociada y gasto aprobado.`
+          : `Factura ${factura.numero_factura} asociada. Falta el proyecto: el gasto sigue pendiente.`,
+      );
       router.refresh();
     } catch {
-      setError("No se pudo conectar con el servidor.");
+      avisos.error("No se pudo conectar con el servidor.");
     } finally {
       setOcupado(null);
     }
@@ -116,12 +121,6 @@ export function PasoMatchManual({ gastos, sugerencias, facturas, puedeEditar }: 
           Solo los que tienen sugerencias
         </label>
       </div>
-
-      {error && (
-        <p role="alert" className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
-          {error}
-        </p>
-      )}
 
       <ul className="mt-4 space-y-3">
         {enPagina.map((g) => {

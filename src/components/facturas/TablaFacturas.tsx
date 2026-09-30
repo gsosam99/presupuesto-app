@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -10,7 +10,11 @@ import {
   type OpcionSelect,
   type Sugerencias,
 } from "@/components/facturas/FormularioFactura";
+import { useAvisos } from "@/components/ui/Avisos";
 import { CONTROL_COMPACTO } from "@/components/ui/estilos";
+import { BarraFiltros, CampoFiltro } from "@/components/ui/Filtros";
+import { Modal } from "@/components/ui/Modal";
+import { ModalConfirmacion } from "@/components/ui/ModalConfirmacion";
 import { moneda } from "@/lib/format";
 import type { ConciliacionFactura } from "@/types";
 
@@ -35,7 +39,7 @@ interface Props {
 const POR_PAGINA = [25, 50, 100, 250] as const;
 const SIN_ENCARGADO = "__sin__";
 
-/** Confirmación en línea: el visor no garantiza confirm() y un modal más sobra. */
+/** Acción destructiva pendiente de confirmar en el modal. */
 type Confirmacion =
   { tipo: "borrar"; ids: string[] } | { tipo: "deshacer"; id: string; numero: string } | null;
 
@@ -56,8 +60,7 @@ export function TablaFacturas({ filas, edicion, estadoInicial = "todas" }: Props
   const [editando, setEditando] = useState<ConciliacionFactura | null>(null);
   const [confirmar, setConfirmar] = useState<Confirmacion>(null);
   const [ocupado, setOcupado] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [aviso, setAviso] = useState<string | null>(null);
+  const avisos = useAvisos();
 
   const encargados = useMemo(
     () => [...new Set(filas.map((f) => f.encargado).filter((e): e is string => e !== null))].sort(),
@@ -105,20 +108,29 @@ export function TablaFacturas({ filas, edicion, estadoInicial = "todas" }: Props
     seleccionables.length > 0 &&
     seleccionables.every((f) => seleccion.has(f.id_factura_preregistrada));
 
+  const hayFiltros =
+    texto !== "" ||
+    estado !== "todas" ||
+    encargado !== "" ||
+    hz !== "" ||
+    desde !== "" ||
+    hasta !== "";
+
+  function limpiarFiltros() {
+    setTexto("");
+    setEstado("todas");
+    setEncargado("");
+    setHz("");
+    setDesde("");
+    setHasta("");
+    setPagina(0);
+  }
+
   const sinCruzar = filas.filter((f) => !f.conciliada);
   const preregistradoUsd = sinCruzar.reduce(
     (s, f) => s + (f.moneda === "USD" && f.monto_estimado !== null ? f.monto_estimado : 0),
     0,
   );
-
-  useEffect(() => {
-    if (!editando) return;
-    function alTeclado(e: KeyboardEvent) {
-      if (e.key === "Escape") setEditando(null);
-    }
-    document.addEventListener("keydown", alTeclado);
-    return () => document.removeEventListener("keydown", alTeclado);
-  }, [editando]);
 
   function reiniciarPagina<T>(setter: (v: T) => void) {
     return (v: T) => {
@@ -149,8 +161,6 @@ export function TablaFacturas({ filas, edicion, estadoInicial = "todas" }: Props
 
   async function ejecutar(c: NonNullable<Confirmacion>) {
     setOcupado(true);
-    setError(null);
-    setAviso(null);
     try {
       const res =
         c.tipo === "borrar"
@@ -171,25 +181,25 @@ export function TablaFacturas({ filas, edicion, estadoInicial = "todas" }: Props
         deshechos?: number;
       };
       if (!res.ok) {
-        setError(json.error ?? "No se pudo completar la acción.");
+        avisos.error(json.error ?? "No se pudo completar la acción.");
         return;
       }
       if (c.tipo === "borrar") {
-        setAviso(
+        avisos.exito(
           `${json.borradas} ${json.borradas === 1 ? "factura borrada" : "facturas borradas"}` +
             (json.omitidas ? ` · ${json.omitidas} omitidas por estar cruzadas` : "") +
             ".",
         );
         setSeleccion(new Set());
       } else {
-        setAviso(
+        avisos.exito(
           `Cruce de ${c.numero} deshecho: ${json.deshechos} posiciones SAP volvieron al triaje.`,
         );
       }
       setConfirmar(null);
       router.refresh();
     } catch {
-      setError("No se pudo conectar con el servidor.");
+      avisos.error("No se pudo conectar con el servidor.");
     } finally {
       setOcupado(false);
     }
@@ -213,71 +223,85 @@ export function TablaFacturas({ filas, edicion, estadoInicial = "todas" }: Props
       </dl>
 
       {/* Filtros */}
-      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-        <input
-          value={texto}
-          onChange={(e) => reiniciarPagina(setTexto)(e.target.value)}
-          aria-label="Buscar"
-          placeholder="Factura, n.º de orden, proveedor, texto…"
-          className={`${CONTROL_COMPACTO} lg:col-span-2`}
-        />
-        <select
-          value={estado}
-          onChange={(e) => reiniciarPagina(setEstado)(e.target.value as FiltroEstado)}
-          aria-label="Estado del cruce"
-          className={CONTROL_COMPACTO}
-        >
-          <option value="todas">Todas</option>
-          <option value="sin_cruzar">Sin cruzar</option>
-          <option value="cruzadas">Cruzadas con SAP</option>
-        </select>
-        <select
-          value={encargado}
-          onChange={(e) => reiniciarPagina(setEncargado)(e.target.value)}
-          aria-label="Encargado"
-          className={CONTROL_COMPACTO}
-        >
-          <option value="">Todos los encargados</option>
-          <option value={SIN_ENCARGADO}>Sin encargado</option>
-          {encargados.map((e) => (
-            <option key={e} value={e}>
-              {e}
-            </option>
-          ))}
-        </select>
-        <select
-          value={hz}
-          onChange={(e) => reiniciarPagina(setHz)(e.target.value)}
-          aria-label="Hunting Zone"
-          className={CONTROL_COMPACTO}
-        >
-          <option value="">Todas las Hunting Zones</option>
-          {zonas.map((z) => (
-            <option key={z} value={z}>
-              {z}
-            </option>
-          ))}
-        </select>
-        <div className="flex gap-2">
+      <BarraFiltros className="mt-6">
+        <CampoFiltro etiqueta="Buscar" ancho="flexible">
+          <input
+            type="search"
+            value={texto}
+            onChange={(e) => reiniciarPagina(setTexto)(e.target.value)}
+            placeholder="Factura, n.º de orden, proveedor, texto…"
+            className={CONTROL_COMPACTO}
+          />
+        </CampoFiltro>
+        <CampoFiltro etiqueta="Estado">
+          <select
+            value={estado}
+            onChange={(e) => reiniciarPagina(setEstado)(e.target.value as FiltroEstado)}
+            className={CONTROL_COMPACTO}
+          >
+            <option value="todas">Todas</option>
+            <option value="sin_cruzar">Sin cruzar</option>
+            <option value="cruzadas">Cruzadas con SAP</option>
+          </select>
+        </CampoFiltro>
+        <CampoFiltro etiqueta="Encargado">
+          <select
+            value={encargado}
+            onChange={(e) => reiniciarPagina(setEncargado)(e.target.value)}
+            className={CONTROL_COMPACTO}
+          >
+            <option value="">Todos</option>
+            <option value={SIN_ENCARGADO}>Sin encargado</option>
+            {encargados.map((e) => (
+              <option key={e} value={e}>
+                {e}
+              </option>
+            ))}
+          </select>
+        </CampoFiltro>
+        <CampoFiltro etiqueta="Hunting Zone">
+          <select
+            value={hz}
+            onChange={(e) => reiniciarPagina(setHz)(e.target.value)}
+            className={CONTROL_COMPACTO}
+          >
+            <option value="">Todas</option>
+            {zonas.map((z) => (
+              <option key={z} value={z}>
+                {z}
+              </option>
+            ))}
+          </select>
+        </CampoFiltro>
+        <CampoFiltro etiqueta="Desde" ancho="fecha">
           <input
             type="date"
             value={desde}
             onChange={(e) => reiniciarPagina(setDesde)(e.target.value)}
-            aria-label="Fecha desde"
             className={CONTROL_COMPACTO}
           />
+        </CampoFiltro>
+        <CampoFiltro etiqueta="Hasta" ancho="fecha">
           <input
             type="date"
             value={hasta}
             onChange={(e) => reiniciarPagina(setHasta)(e.target.value)}
-            aria-label="Fecha hasta"
             className={CONTROL_COMPACTO}
           />
-        </div>
-      </div>
+        </CampoFiltro>
+        {hayFiltros && (
+          <button
+            type="button"
+            onClick={limpiarFiltros}
+            className="h-8 rounded-md px-2 text-xs font-semibold text-[var(--blue)] hover:underline"
+          >
+            Limpiar filtros
+          </button>
+        )}
+      </BarraFiltros>
 
-      {/* Barra de selección y avisos */}
-      {puedeEditar && marcadas.length > 0 && !confirmar && (
+      {/* Acciones sobre la selección */}
+      {puedeEditar && marcadas.length > 0 && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-[var(--ink)]">
             {marcadas.length} seleccionadas
@@ -299,46 +323,6 @@ export function TablaFacturas({ filas, edicion, estadoInicial = "todas" }: Props
             Cancelar
           </button>
         </div>
-      )}
-
-      {confirmar && (
-        <div
-          role="alert"
-          className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
-        >
-          <span>
-            {confirmar.tipo === "borrar"
-              ? `¿Eliminar ${confirmar.ids.length} ${
-                  confirmar.ids.length === 1 ? "factura" : "facturas"
-                }? No se puede deshacer.`
-              : `¿Deshacer el cruce de ${confirmar.numero}? Sus posiciones SAP pierden lo que heredaron de la factura y vuelven al triaje.`}
-          </span>
-          <button
-            type="button"
-            disabled={ocupado}
-            onClick={() => void ejecutar(confirmar)}
-            className="rounded-md bg-[var(--bad)] px-3 py-1.5 font-semibold text-white hover:opacity-90 disabled:opacity-50"
-          >
-            {ocupado ? "Procesando…" : "Sí, confirmar"}
-          </button>
-          <button
-            type="button"
-            disabled={ocupado}
-            onClick={() => setConfirmar(null)}
-            className="rounded-md border border-[var(--line)] bg-white px-3 py-1.5 text-[var(--ink)] hover:bg-[var(--line-soft)]"
-          >
-            No
-          </button>
-        </div>
-      )}
-
-      {error && (
-        <p role="alert" className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
-          {error}
-        </p>
-      )}
-      {aviso && (
-        <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{aviso}</p>
       )}
 
       {/* Tabla */}
@@ -441,10 +425,7 @@ export function TablaFacturas({ filas, edicion, estadoInicial = "todas" }: Props
                     <td className="whitespace-nowrap">
                       <button
                         type="button"
-                        onClick={() => {
-                          setAviso(null);
-                          setEditando(f);
-                        }}
+                        onClick={() => setEditando(f)}
                         className="mr-3 font-semibold text-[var(--blue)] hover:underline"
                       >
                         Editar
@@ -538,74 +519,83 @@ export function TablaFacturas({ filas, edicion, estadoInicial = "todas" }: Props
         editar, salvo su número y la cuenta del proveedor, que son la llave del cruce.
       </p>
 
+      {/* Confirmación de acciones destructivas */}
+      {confirmar && (
+        <ModalConfirmacion
+          titulo={
+            confirmar.tipo === "borrar"
+              ? confirmar.ids.length === 1
+                ? "Eliminar factura"
+                : `Eliminar ${confirmar.ids.length} facturas`
+              : `Deshacer el cruce de ${confirmar.numero}`
+          }
+          textoConfirmar={confirmar.tipo === "borrar" ? "Eliminar" : "Deshacer cruce"}
+          peligro
+          procesando={ocupado}
+          onConfirmar={() => void ejecutar(confirmar)}
+          onCancelar={() => setConfirmar(null)}
+        >
+          {confirmar.tipo === "borrar" ? (
+            <p>
+              {confirmar.ids.length === 1
+                ? "La factura pre-registrada se elimina y no se puede recuperar."
+                : "Las facturas pre-registradas se eliminan y no se pueden recuperar."}
+            </p>
+          ) : (
+            <p>
+              Sus posiciones de SAP pierden la Orden Interna, la taxonomía y el encargado que
+              heredaron de la factura, y vuelven a la Sala de Triaje como pendientes.
+            </p>
+          )}
+        </ModalConfirmacion>
+      )}
+
       {/* Modal de edición */}
       {editando && edicion && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-6"
-          onClick={() => setEditando(null)}
+        <Modal
+          titulo={`Editar factura ${editando.numero_factura}`}
+          descripcion={
+            editando.conciliada
+              ? `Cruzó con ${editando.posiciones_sap} ${
+                  editando.posiciones_sap === 1 ? "posición" : "posiciones"
+                } de SAP. Los cambios se aplican también a ellas, salvo donde se corrigió a mano en el triaje.`
+              : undefined
+          }
+          onCerrar={() => setEditando(null)}
+          ancho="xl"
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="titulo-edicion-factura"
-            onClick={(e) => e.stopPropagation()}
-            className="max-h-[92svh] w-full max-w-4xl overflow-y-auto rounded-t-xl bg-[var(--canvas)] p-5 shadow-xl sm:rounded-xl"
-          >
-            <div className="mb-4 flex items-start justify-between gap-4">
-              <div>
-                <h2 id="titulo-edicion-factura" className="text-lg font-semibold text-[var(--ink)]">
-                  Editar factura {editando.numero_factura}
-                </h2>
-                {editando.conciliada && (
-                  <p className="mt-1 text-sm text-[var(--muted)]">
-                    Cruzó con {editando.posiciones_sap}{" "}
-                    {editando.posiciones_sap === 1 ? "posición" : "posiciones"} de SAP. Los cambios
-                    se aplican también a ellas, salvo donde se corrigió a mano en el triaje.
-                  </p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditando(null)}
-                className="rounded-md px-2 py-1 text-sm text-[var(--muted)] hover:bg-[var(--line-soft)]"
-              >
-                Cerrar
-              </button>
-            </div>
-
-            <FormularioFactura
-              ordenesInternas={edicion.ordenesInternas}
-              cecos={edicion.cecos}
-              encargados={edicion.encargados}
-              sugerencias={edicion.sugerencias}
-              trimestreActual={edicion.trimestreActual}
-              fechaDatosSap={edicion.fechaDatosSap}
-              cruzada={editando.conciliada}
-              inicial={{
-                id: editando.id_factura_preregistrada,
-                numero_factura: editando.numero_factura,
-                numero_orden: editando.numero_orden,
-                id_encargado: editando.id_encargado,
-                proveedor_codigo: editando.proveedor_codigo,
-                texto_referencia: editando.texto_referencia,
-                fecha_factura: editando.fecha_factura,
-                id_oi: editando.id_oi,
-                codigo_oi: editando.codigo_oi,
-                id_ceco: editando.id_ceco,
-                fase: editando.fase,
-                motivo: editando.motivo,
-                detalle: editando.detalle,
-                monto_estimado: editando.monto_estimado,
-                moneda: editando.moneda,
-                nota: editando.nota,
-              }}
-              onGuardada={(mensaje) => {
-                setEditando(null);
-                setAviso(mensaje);
-              }}
-            />
-          </div>
-        </div>
+          <FormularioFactura
+            ordenesInternas={edicion.ordenesInternas}
+            cecos={edicion.cecos}
+            encargados={edicion.encargados}
+            sugerencias={edicion.sugerencias}
+            trimestreActual={edicion.trimestreActual}
+            fechaDatosSap={edicion.fechaDatosSap}
+            cruzada={editando.conciliada}
+            inicial={{
+              id: editando.id_factura_preregistrada,
+              numero_factura: editando.numero_factura,
+              numero_orden: editando.numero_orden,
+              id_encargado: editando.id_encargado,
+              proveedor_codigo: editando.proveedor_codigo,
+              texto_referencia: editando.texto_referencia,
+              fecha_factura: editando.fecha_factura,
+              id_oi: editando.id_oi,
+              codigo_oi: editando.codigo_oi,
+              id_ceco: editando.id_ceco,
+              fase: editando.fase,
+              motivo: editando.motivo,
+              detalle: editando.detalle,
+              monto_estimado: editando.monto_estimado,
+              moneda: editando.moneda,
+              nota: editando.nota,
+            }}
+            onGuardada={(mensaje) => {
+              setEditando(null);
+              avisos.exito(mensaje);
+            }}
+          />
+        </Modal>
       )}
     </div>
   );

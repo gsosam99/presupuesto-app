@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 
+import { useAvisos } from "@/components/ui/Avisos";
 import { CampoSugerido, ListaSugerencias } from "@/components/ui/CampoSugerido";
 import { CONTROL_CELDA } from "@/components/ui/estilos";
 import { moneda } from "@/lib/format";
@@ -157,7 +158,7 @@ export function TablaTriaje({
   const [borradores, setBorradores] = useState<Record<string, Borrador>>({});
   const [resueltos, setResueltos] = useState<Set<string>>(new Set());
   const [enProceso, setEnProceso] = useState<Set<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
+  const avisos = useAvisos();
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
 
   const [filtro, setFiltro] = useState("");
@@ -280,8 +281,7 @@ export function TablaTriaje({
       indiceSiguiente?: number,
     ) => {
       if (objetivo.length === 0) return;
-      setError(null);
-      setEnProceso((prev) => new Set([...prev, ...objetivo.map((g) => g.id)]));
+        setEnProceso((prev) => new Set([...prev, ...objetivo.map((g) => g.id)]));
 
       try {
         // En lote no se envían campos de edición: solo cambia el estado.
@@ -310,7 +310,7 @@ export function TablaTriaje({
 
         const json = (await res.json()) as { error?: string };
         if (!res.ok) {
-          setError(json.error ?? "No se pudo aplicar el cambio.");
+          avisos.error(json.error ?? "No se pudo aplicar el cambio.");
           return;
         }
 
@@ -325,7 +325,7 @@ export function TablaTriaje({
         }
         router.refresh();
       } catch {
-        setError("No se pudo conectar con el servidor.");
+        avisos.error("No se pudo conectar con el servidor.");
       } finally {
         setEnProceso((prev) => {
           const copia = new Set(prev);
@@ -334,7 +334,7 @@ export function TablaTriaje({
         });
       }
     },
-    [borradorDe, enfocar, router],
+    [borradorDe, enfocar, router, avisos],
   );
 
   function manejarTecla(e: KeyboardEvent<HTMLElement>, gasto: GastoPendiente, i: number) {
@@ -407,7 +407,7 @@ export function TablaTriaje({
             }}
             aria-label="Buscar"
             placeholder="Buscar"
-            className="h-9 w-72 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300"
+            className="h-9 w-full rounded-md sm:w-72 border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300"
           />
         )}
 
@@ -420,12 +420,6 @@ export function TablaTriaje({
           <kbd className="rounded border border-slate-300 px-1">⌫</kbd> archiva
         </p>
       </div>
-
-      {error && (
-        <p role="alert" className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
-          {error}
-        </p>
-      )}
 
       <datalist id="opciones-asignacion">
         {asignaciones.map((a) => (

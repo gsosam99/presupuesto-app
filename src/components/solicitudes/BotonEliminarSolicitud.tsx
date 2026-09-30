@@ -3,8 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useAvisos } from "@/components/ui/Avisos";
+import { ModalConfirmacion } from "@/components/ui/ModalConfirmacion";
+
 interface Props {
   id: string;
+  titulo: string;
   aprobada: boolean;
   /** Extra plan aprobado: borrarlo descarga sus líneas del presupuesto. */
   cargaPresupuesto: boolean;
@@ -12,34 +16,41 @@ interface Props {
   redirigirA?: string;
 }
 
-/** Eliminar con confirmación en línea: el visor no garantiza confirm(). */
-export function BotonEliminarSolicitud({ id, aprobada, cargaPresupuesto, redirigirA }: Props) {
+/** Eliminar una solicitud, con confirmación en un modal. */
+export function BotonEliminarSolicitud({
+  id,
+  titulo,
+  aprobada,
+  cargaPresupuesto,
+  redirigirA,
+}: Props) {
   const router = useRouter();
+  const avisos = useAvisos();
   const [confirmando, setConfirmando] = useState(false);
   const [ocupado, setOcupado] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   async function eliminar() {
     setOcupado(true);
-    setError(null);
     try {
       const res = await fetch(`/api/solicitudes/${id}`, { method: "DELETE" });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setError(json.error ?? "No se pudo eliminar.");
+        avisos.error(json.error ?? "No se pudo eliminar la solicitud.");
         return;
       }
+      setConfirmando(false);
+      avisos.exito(`Solicitud "${titulo}" eliminada.`);
       if (redirigirA) router.push(redirigirA);
       router.refresh();
     } catch {
-      setError("No se pudo conectar con el servidor.");
+      avisos.error("No se pudo conectar con el servidor.");
     } finally {
       setOcupado(false);
     }
   }
 
-  if (!confirmando) {
-    return (
+  return (
+    <>
       <button
         type="button"
         onClick={() => setConfirmando(true)}
@@ -47,39 +58,28 @@ export function BotonEliminarSolicitud({ id, aprobada, cargaPresupuesto, redirig
       >
         Eliminar
       </button>
-    );
-  }
 
-  return (
-    <span className="inline-flex flex-wrap items-center gap-2 text-xs">
-      <span className="text-[var(--ink-soft)]">
-        {aprobada
-          ? cargaPresupuesto
-            ? "Está aprobada: se descargan sus líneas del presupuesto."
-            : "Está aprobada: deja de afectar los fondos."
-          : "¿Eliminar?"}
-      </span>
-      <button
-        type="button"
-        disabled={ocupado}
-        onClick={() => void eliminar()}
-        className="font-semibold text-[var(--bad)] hover:underline disabled:opacity-50"
-      >
-        {ocupado ? "Eliminando…" : "Sí, eliminar"}
-      </button>
-      <button
-        type="button"
-        disabled={ocupado}
-        onClick={() => setConfirmando(false)}
-        className="text-[var(--muted)] hover:underline"
-      >
-        No
-      </button>
-      {error && (
-        <span role="alert" className="text-[var(--bad)]">
-          {error}
-        </span>
+      {confirmando && (
+        <ModalConfirmacion
+          titulo="Eliminar solicitud"
+          textoConfirmar="Eliminar"
+          peligro
+          procesando={ocupado}
+          onConfirmar={() => void eliminar()}
+          onCancelar={() => setConfirmando(false)}
+        >
+          <p>
+            Se elimina <strong>{titulo}</strong> con todas sus líneas. No se puede recuperar.
+          </p>
+          {aprobada && (
+            <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-amber-900">
+              {cargaPresupuesto
+                ? "Está aprobada: sus líneas se descargan del presupuesto y dejan de sumar a los fondos."
+                : "Está aprobada: deja de afectar los fondos."}
+            </p>
+          )}
+        </ModalConfirmacion>
       )}
-    </span>
+    </>
   );
 }

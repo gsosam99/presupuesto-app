@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useAvisos } from "@/components/ui/Avisos";
+import { ModalConfirmacion } from "@/components/ui/ModalConfirmacion";
 import { moneda } from "@/lib/format";
 
 export interface GrupoCruce {
@@ -30,13 +32,12 @@ interface Props {
  */
 export function PasoCruceAutomatico({ grupos, puedeEditar }: Props) {
   const router = useRouter();
-  const [confirmando, setConfirmando] = useState<string | null>(null);
+  const avisos = useAvisos();
+  const [confirmando, setConfirmando] = useState<GrupoCruce | null>(null);
   const [ocupado, setOcupado] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   async function deshacer(g: GrupoCruce) {
     setOcupado(true);
-    setError(null);
     try {
       const res = await fetch("/api/cruces", {
         method: "DELETE",
@@ -45,13 +46,18 @@ export function PasoCruceAutomatico({ grupos, puedeEditar }: Props) {
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setError(json.error ?? "No se pudo deshacer el cruce.");
+        avisos.error(json.error ?? "No se pudo deshacer el cruce.");
         return;
       }
       setConfirmando(null);
+      avisos.exito(
+        `Cruce de ${g.numero} deshecho: ${g.idsGasto.length} ${
+          g.idsGasto.length === 1 ? "posición volvió" : "posiciones volvieron"
+        } a pendientes.`,
+      );
       router.refresh();
     } catch {
-      setError("No se pudo conectar con el servidor.");
+      avisos.error("No se pudo conectar con el servidor.");
     } finally {
       setOcupado(false);
     }
@@ -77,10 +83,21 @@ export function PasoCruceAutomatico({ grupos, puedeEditar }: Props) {
         el encargado de la factura y quedaron aprobadas.
       </p>
 
-      {error && (
-        <p role="alert" className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
-          {error}
-        </p>
+      {confirmando && (
+        <ModalConfirmacion
+          titulo={`Deshacer el cruce de ${confirmando.numero}`}
+          textoConfirmar="Deshacer cruce"
+          peligro
+          procesando={ocupado}
+          onConfirmar={() => void deshacer(confirmando)}
+          onCancelar={() => setConfirmando(null)}
+        >
+          <p>
+            Sus {confirmando.idsGasto.length} posiciones de SAP pierden lo que heredaron de la
+            factura y vuelven a pendientes: aparecerán en el paso siguiente para asociarlas a la
+            factura correcta.
+          </p>
+        </ModalConfirmacion>
       )}
 
       <div className="ui-card mt-4 overflow-x-auto">
@@ -134,34 +151,13 @@ export function PasoCruceAutomatico({ grupos, puedeEditar }: Props) {
                   </td>
                   {puedeEditar && (
                     <td className="whitespace-nowrap">
-                      {confirmando === g.idFactura ? (
-                        <span className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            disabled={ocupado}
-                            onClick={() => void deshacer(g)}
-                            className="font-semibold text-[var(--bad)] hover:underline disabled:opacity-50"
-                          >
-                            {ocupado ? "Deshaciendo…" : "Confirmar"}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={ocupado}
-                            onClick={() => setConfirmando(null)}
-                            className="text-[var(--muted)] hover:underline"
-                          >
-                            No
-                          </button>
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setConfirmando(g.idFactura)}
-                          className="font-semibold text-amber-700 hover:underline"
-                        >
-                          Deshacer cruce
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => setConfirmando(g)}
+                        className="font-semibold text-amber-700 hover:underline"
+                      >
+                        Deshacer cruce
+                      </button>
                     </td>
                   )}
                 </tr>

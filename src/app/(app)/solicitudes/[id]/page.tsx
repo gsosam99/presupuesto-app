@@ -228,6 +228,7 @@ export default async function SolicitudPage({
             tipo={tipo}
             estado={estado}
             referenciaActual={(solicitud.referencia_aprobacion as string | null) ?? null}
+            titulo={solicitud.titulo as string}
             puedeGestionar={tienePermiso(rol, "solicitudes:crear")}
             puedeResolver={tienePermiso(rol, "solicitudes:resolver")}
           />

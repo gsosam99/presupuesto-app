@@ -23,6 +23,7 @@ interface Props {
   tipo: TipoSolicitud;
   estado: EstadoSolicitud;
   referenciaActual: string | null;
+  titulo: string;
   /** Enviar y devolver a borrador (solicitudes:crear). */
   puedeGestionar: boolean;
   /** Aprobar, rechazar y revertir la aprobación (solicitudes:resolver). */
@@ -34,6 +35,7 @@ export function AccionesSolicitud({
   tipo,
   estado,
   referenciaActual,
+  titulo,
   puedeGestionar,
   puedeResolver,
 }: Props) {
@@ -201,6 +203,7 @@ export function AccionesSolicitud({
         <div className="mt-6 border-t border-[var(--line-soft)] pt-3">
           <BotonEliminarSolicitud
             id={id}
+            titulo={titulo}
             aprobada={estado === "aprobada"}
             cargaPresupuesto={tipo === "extra_plan"}
             redirigirA="/solicitudes"

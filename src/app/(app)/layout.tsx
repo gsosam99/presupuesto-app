@@ -1,4 +1,5 @@
 import { Sidebar } from "@/components/nav/Sidebar";
+import { ProveedorAvisos } from "@/components/ui/Avisos";
 import { requireRol } from "@/lib/auth";
 import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -24,7 +25,9 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         aniosFiscales={(anios.data ?? []) as Array<{ fy: number; etiqueta: string }>}
         fySeleccionado={fySeleccionado}
       />
-      <main className="min-w-0 flex-1">{children}</main>
+      <ProveedorAvisos>
+        <main className="min-w-0 flex-1">{children}</main>
+      </ProveedorAvisos>
     </div>
   );
 }

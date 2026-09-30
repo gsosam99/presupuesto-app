@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useAvisos } from "@/components/ui/Avisos";
 import { Button } from "@/components/ui/Button";
 import { CONTROL_CELDA, CONTROL_COMPACTO } from "@/components/ui/estilos";
 import { Toggle } from "@/components/ui/Toggle";
@@ -106,8 +107,7 @@ export function TablaMaestra({
   const [edicion, setEdicion] = useState<Record<string, FilaMaestra>>({});
   const [nueva, setNueva] = useState<Record<string, string | boolean> | null>(null);
   const [guardando, setGuardando] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
+  const avisos = useAvisos();
 
   // El servidor ya ordena cada entidad con criterio (codigo_oi, orden_display,
   // fy desc), así que `orden` arranca en null = "como vino" y sólo se ordena
@@ -184,13 +184,11 @@ export function TablaMaestra({
     const fila = filas.find((f) => f.id === id);
     const faltan = faltantes({ ...fila, ...cambios });
     if (faltan.length > 0) {
-      setError(`Completa: ${faltan.map((f) => f.etiqueta).join(", ")}`);
+      avisos.error(`Completa: ${faltan.map((f) => f.etiqueta).join(", ")}`);
       return;
     }
 
     setGuardando(id);
-    setError(null);
-    setOk(null);
 
     try {
       const res = await fetch(`/api/maestras/${entidad}`, {
@@ -200,7 +198,7 @@ export function TablaMaestra({
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setError(json.error ?? "No se pudo guardar.");
+        avisos.error(json.error ?? "No se pudo guardar.");
         return;
       }
       setEdicion((prev) => {
@@ -208,10 +206,10 @@ export function TablaMaestra({
         delete copia[id];
         return copia;
       });
-      setOk("Cambios guardados.");
+      avisos.exito("Cambios guardados.");
       router.refresh();
     } catch {
-      setError("No se pudo conectar con el servidor.");
+      avisos.error("No se pudo conectar con el servidor.");
     } finally {
       setGuardando(null);
     }
@@ -222,13 +220,11 @@ export function TablaMaestra({
 
     const faltan = faltantes(nueva);
     if (faltan.length > 0) {
-      setError(`Completa: ${faltan.map((f) => f.etiqueta).join(", ")}`);
+      avisos.error(`Completa: ${faltan.map((f) => f.etiqueta).join(", ")}`);
       return;
     }
 
     setGuardando("nueva");
-    setError(null);
-    setOk(null);
 
     try {
       const res = await fetch(`/api/maestras/${entidad}`, {
@@ -238,17 +234,17 @@ export function TablaMaestra({
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setError(json.error ?? "No se pudo crear.");
+        avisos.error(json.error ?? "No se pudo crear.");
         return;
       }
       setNueva(null);
-      setOk("Registro creado.");
+      avisos.exito("Registro creado.");
       // La fila nueva cae donde la ponga el orden del servidor; la página 0 es
       // el lugar menos sorprendente para quedar parado.
       setPagina(0);
       router.refresh();
     } catch {
-      setError("No se pudo conectar con el servidor.");
+      avisos.error("No se pudo conectar con el servidor.");
     } finally {
       setGuardando(null);
     }
@@ -319,17 +315,6 @@ export function TablaMaestra({
 
   return (
     <div>
-      {error && (
-        <p role="alert" className="mb-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-[var(--bad)]">
-          {error}
-        </p>
-      )}
-      {ok && (
-        <p className="mb-3 rounded-md bg-[rgba(30,138,138,0.1)] px-3 py-2 text-sm text-[var(--ok)]">
-          {ok}
-        </p>
-      )}
-
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <input
           type="search"
@@ -340,7 +325,7 @@ export function TablaMaestra({
           }}
           placeholder="Buscar…"
           aria-label="Buscar en la tabla"
-          className={`w-64 ${CONTROL_COMPACTO}`}
+          className={`w-full sm:w-64 ${CONTROL_COMPACTO}`}
         />
         <span className="text-xs text-[var(--muted)]">
           {visibles.length} de {filas.length}

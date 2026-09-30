@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useAvisos } from "@/components/ui/Avisos";
 import { moneda } from "@/lib/format";
 
 export interface GastoArchivado {
@@ -31,7 +32,7 @@ export function TablaArchivados({
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [devueltos, setDevueltos] = useState<Set<string>>(new Set());
   const [enProceso, setEnProceso] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const avisos = useAvisos();
   const [filtro, setFiltro] = useState("");
 
   const visibles = useMemo(() => {
@@ -59,7 +60,6 @@ export function TablaArchivados({
   async function devolverAlTriaje(objetivo: GastoArchivado[]) {
     if (objetivo.length === 0) return;
     setEnProceso(true);
-    setError(null);
 
     try {
       const res = await fetch("/api/triaje", {
@@ -69,14 +69,17 @@ export function TablaArchivados({
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setError(json.error ?? "No se pudo devolver al triaje.");
+        avisos.error(json.error ?? "No se pudo devolver al triaje.");
         return;
       }
       setDevueltos((prev) => new Set([...prev, ...objetivo.map((g) => g.id)]));
+      avisos.exito(
+        `${objetivo.length} ${objetivo.length === 1 ? "gasto volvió" : "gastos volvieron"} a la Sala de Triaje.`,
+      );
       setSeleccion(new Set());
       router.refresh();
     } catch {
-      setError("No se pudo conectar con el servidor.");
+      avisos.error("No se pudo conectar con el servidor.");
     } finally {
       setEnProceso(false);
     }
@@ -120,7 +123,7 @@ export function TablaArchivados({
             onChange={(e) => setFiltro(e.target.value)}
             aria-label="Buscar"
             placeholder="Buscar"
-            className="h-9 w-72 rounded-md border border-[var(--line)] bg-white px-3 text-sm text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[rgba(46,117,182,0.25)]"
+            className="h-9 w-full rounded-md sm:w-72 border border-[var(--line)] bg-white px-3 text-sm text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[rgba(46,117,182,0.25)]"
           />
         )}
 
@@ -128,12 +131,6 @@ export function TablaArchivados({
           {visibles.length} archivados · {moneda.format(montoVisible)}
         </span>
       </div>
-
-      {error && (
-        <p role="alert" className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-[var(--bad)]">
-          {error}
-        </p>
-      )}
 
       <div className="ui-card mt-3 overflow-x-auto">
         <table className="ui-table min-w-[64rem] text-xs">

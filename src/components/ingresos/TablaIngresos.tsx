@@ -3,8 +3,10 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useAvisos } from "@/components/ui/Avisos";
 import { CampoSugerido, ListaSugerencias } from "@/components/ui/CampoSugerido";
 import { CONTROL_CELDA, CONTROL_COMPACTO } from "@/components/ui/estilos";
+import { ModalConfirmacion } from "@/components/ui/ModalConfirmacion";
 import { MESES_FY, nombreMes } from "@/lib/fiscal";
 import { moneda } from "@/lib/format";
 
@@ -38,7 +40,8 @@ export function TablaIngresos({ filas, huntingZones, sugerencias, soloLectura = 
   const [editando, setEditando] = useState<string | null>(null);
   const [parche, setParche] = useState<Parche>({});
   const [ocupado, setOcupado] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const avisos = useAvisos();
+  const [aBorrar, setABorrar] = useState<FilaIngreso | null>(null);
   const [filtro, setFiltro] = useState("");
 
   const nombreHz = useMemo(
@@ -70,7 +73,6 @@ export function TablaIngresos({ filas, huntingZones, sugerencias, soloLectura = 
   function abrirEdicion(f: FilaIngreso) {
     setEditando(f.id);
     setParche({});
-    setError(null);
   }
 
   function campo<K extends keyof Parche>(f: FilaIngreso, clave: K): FilaIngreso[K] {
@@ -84,7 +86,6 @@ export function TablaIngresos({ filas, huntingZones, sugerencias, soloLectura = 
     }
 
     setOcupado(id);
-    setError(null);
     try {
       const res = await fetch("/api/ingresos", {
         method: "PATCH",
@@ -93,39 +94,35 @@ export function TablaIngresos({ filas, huntingZones, sugerencias, soloLectura = 
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setError(json.error ?? "No se pudo guardar el cambio.");
+        avisos.error(json.error ?? "No se pudo guardar el cambio.");
         return;
       }
       setEditando(null);
       setParche({});
       router.refresh();
     } catch {
-      setError("No se pudo conectar con el servidor.");
+      avisos.error("No se pudo conectar con el servidor.");
     } finally {
       setOcupado(null);
     }
   }
 
   async function borrar(f: FilaIngreso) {
-    const etiqueta = `${f.concepto} · ${nombreMes(f.mes)} · ${moneda.format(f.monto)}`;
-    if (!window.confirm(`¿Borrar este ingreso?\n\n${etiqueta}\n\nNo se puede deshacer.`)) {
-      return;
-    }
-
     setOcupado(f.id);
-    setError(null);
     try {
       const res = await fetch(`/api/ingresos?id=${encodeURIComponent(f.id)}`, {
         method: "DELETE",
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setError(json.error ?? "No se pudo borrar el ingreso.");
+        avisos.error(json.error ?? "No se pudo borrar el ingreso.");
         return;
       }
+      setABorrar(null);
+      avisos.exito(`Ingreso "${f.concepto}" borrado.`);
       router.refresh();
     } catch {
-      setError("No se pudo conectar con el servidor.");
+      avisos.error("No se pudo conectar con el servidor.");
     } finally {
       setOcupado(null);
     }
@@ -146,10 +143,21 @@ export function TablaIngresos({ filas, huntingZones, sugerencias, soloLectura = 
       <ListaSugerencias id="sug-motivo" sugerencias={sugerencias.motivo} />
       <ListaSugerencias id="sug-detalle" sugerencias={sugerencias.detalle} />
 
-      {error && (
-        <p role="alert" className="mb-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-[var(--bad)]">
-          {error}
-        </p>
+      {aBorrar && (
+        <ModalConfirmacion
+          titulo="Borrar ingreso"
+          textoConfirmar="Borrar"
+          peligro
+          procesando={ocupado === aBorrar.id}
+          onConfirmar={() => void borrar(aBorrar)}
+          onCancelar={() => setABorrar(null)}
+        >
+          <p>
+            <strong>{aBorrar.concepto}</strong> · {nombreMes(aBorrar.mes)} ·{" "}
+            {moneda.format(aBorrar.monto)}
+          </p>
+          <p className="mt-2">El ingreso se elimina y no se puede recuperar.</p>
+        </ModalConfirmacion>
       )}
 
       <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -159,7 +167,7 @@ export function TablaIngresos({ filas, huntingZones, sugerencias, soloLectura = 
           onChange={(e) => setFiltro(e.target.value)}
           placeholder="Buscar…"
           aria-label="Buscar ingresos"
-          className={`w-64 ${CONTROL_COMPACTO}`}
+          className={`w-full sm:w-64 ${CONTROL_COMPACTO}`}
         />
         <span className="text-xs text-[var(--muted)]">
           {visibles.length} de {filas.length} · {moneda.format(total)}
@@ -207,7 +215,7 @@ export function TablaIngresos({ filas, huntingZones, sugerencias, soloLectura = 
                           <button
                             type="button"
                             disabled={ocupado === f.id}
-                            onClick={() => void borrar(f)}
+                            onClick={() => setABorrar(f)}
                             className="text-[var(--bad)] hover:underline disabled:opacity-50"
                           >
                             Borrar
