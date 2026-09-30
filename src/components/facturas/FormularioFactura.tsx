@@ -20,12 +20,15 @@ export interface OpcionOi {
   /** Hunting Zone que la maestra ya tiene asociada a esta OI. */
   huntingZone: string | null;
   idHuntingZone: string | null;
-  /** Fondos del trimestre en curso: lo que realmente queda para gastar hoy. */
-  saldoTrimestre: number | null;
-  disponibleTrimestre: number | null;
-  consumidoTrimestre: number | null;
+  /**
+   * Disponible del mes en curso según SAP (plan habilitado + suplementos −
+   * devoluciones − Real, acumulado en el trimestre). null = sin presupuesto.
+   */
+  disponibleMes: number | null;
+  /** Real SAP imputado en el trimestre en curso. */
+  realTrimestre: number | null;
   /** USD de facturas pre-registradas de esta OI que SAP todavía no trajo. */
-  comprometidoTrimestre: number;
+  preregistradoTrimestre: number;
   /** Rango de vigencia legible, o null si la orden está abierta. */
   vigencia: string | null;
 }
@@ -152,11 +155,11 @@ export function FormularioFactura({
   // Un gasto imputado al CeCo necesita una OI (real o tag) para saber su HZ.
   const faltaOrden = idCecoEfectivo !== "" && !idOi;
 
-  // Proyección del trimestre en curso para la OI elegida. La factura que se
-  // está escribiendo suma si es USD; al editar una sin cruzar, su monto
-  // anterior ya estaba dentro del comprometido y no se cuenta dos veces.
+  // Proyección del mes en curso para la OI elegida. La factura que se está
+  // escribiendo suma si es USD; al editar una sin cruzar, su monto anterior ya
+  // estaba dentro del pre-registrado y no se cuenta dos veces.
   const fondos = useMemo(() => {
-    if (!oiElegida || oiElegida.saldoTrimestre === null) return null;
+    if (!oiElegida || oiElegida.disponibleMes === null) return null;
     const monto = Number(montoTexto);
     const estaFactura = monedaElegida === "USD" && monto > 0 ? monto : 0;
     const yaIncluida =
@@ -166,12 +169,12 @@ export function FormularioFactura({
       inicial.monto_estimado !== null
         ? inicial.monto_estimado
         : 0;
-    const comprometido = oiElegida.comprometidoTrimestre;
+    const preregistrado = oiElegida.preregistradoTrimestre;
     return {
-      saldo: oiElegida.saldoTrimestre,
-      comprometido,
+      disponible: oiElegida.disponibleMes,
+      preregistrado,
       estaFactura,
-      proyectado: oiElegida.saldoTrimestre - comprometido + yaIncluida - estaFactura,
+      proyectado: oiElegida.disponibleMes - preregistrado + yaIncluida - estaFactura,
     };
   }, [oiElegida, montoTexto, monedaElegida, cruzada, inicial]);
 
@@ -432,32 +435,32 @@ export function FormularioFactura({
         </p>
       )}
 
-      {/* Fondos de la OI elegida. Tres capas que no se mezclan: el saldo lo pone
-          SAP (única fuente del consumido); lo comprometido son facturas de la app
-          que SAP todavía no trajo; el proyectado es solo una estimación. Es un
-          aviso, nunca bloquea: app y SAP no están conectadas y los montos pueden
-          diferir sin que eso sea un error. */}
+      {/* Fondos de la OI elegida, en los términos del reporte BW. El
+          Disponible sale de SAP (el Real es la única fuente del gasto); el
+          pre-registrado son facturas de la app que SAP todavía no trajo; el
+          proyectado es solo una estimación. Es un aviso y nunca bloquea: app y
+          SAP no están conectadas y los montos pueden diferir sin error. */}
       {oiElegida && fondos && (
         <div className="mt-4 rounded-md border border-[var(--line)] bg-white px-4 py-3">
           <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">
-            Fondos de {oiElegida.codigo} · {trimestreActual}
+            Fondos de {oiElegida.codigo} · mes en curso ({trimestreActual})
           </p>
           <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
             <div>
-              <dt className="text-xs text-[var(--muted)]">Saldo según SAP</dt>
+              <dt className="text-xs text-[var(--muted)]">Disponible (SAP)</dt>
               <dd className="font-bold tabular-nums text-[var(--ink)]">
-                {formatoMoneda.format(fondos.saldo)}
+                {formatoMoneda.format(fondos.disponible)}
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-[var(--muted)]">Comprometido (app)</dt>
+              <dt className="text-xs text-[var(--muted)]">Pre-registrado</dt>
               <dd className="tabular-nums text-[var(--ink)]">
-                {formatoMoneda.format(fondos.comprometido)}
+                {formatoMoneda.format(fondos.preregistrado)}
               </dd>
             </div>
             <div>
               <dt className="text-xs text-[var(--muted)]">
-                Saldo proyectado{fondos.estaFactura > 0 ? " con esta factura" : ""}
+                Disponible proyectado{fondos.estaFactura > 0 ? " con esta factura" : ""}
               </dt>
               <dd
                 className={
@@ -469,9 +472,9 @@ export function FormularioFactura({
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-[var(--muted)]">Consumido (SAP)</dt>
+              <dt className="text-xs text-[var(--muted)]">Real del trimestre (SAP)</dt>
               <dd className="tabular-nums text-[var(--ink)]">
-                {formatoMoneda.format(oiElegida.consumidoTrimestre ?? 0)}
+                {formatoMoneda.format(oiElegida.realTrimestre ?? 0)}
               </dd>
             </div>
           </dl>
@@ -479,14 +482,14 @@ export function FormularioFactura({
             {fechaDatosSap
               ? `Datos de SAP al ${new Date(fechaDatosSap).toLocaleDateString("es-VE")}. `
               : ""}
-            El comprometido son facturas registradas que SAP todavía no trajo; no se descuenta del
-            saldo y desaparece cuando la factura cruza.
+            Pre-registrado: facturas registradas en la app que SAP todavía no trajo. No se
+            descuenta del Disponible y desaparece cuando la factura cruza.
           </p>
           {fondos.proyectado < 0 && (
             <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
-              Con lo comprometido, el saldo proyectado quedaría en{" "}
+              Con lo pre-registrado, el Disponible proyectado quedaría en{" "}
               {formatoMoneda.format(fondos.proyectado)}. Es una estimación: revisa si hace falta un
-              extra plan. Puedes registrar la factura igual.
+              extra plan o una reclasificación. Puedes registrar la factura igual.
             </p>
           )}
         </div>

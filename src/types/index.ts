@@ -287,12 +287,25 @@ export type Trimestre = 1 | 2 | 3 | 4;
 
 export type EstadoTrimestre = "cerrado" | "actual" | "futuro";
 
-export type TipoSolicitud = "extra_plan" | "prorroga";
+/**
+ * Tipos de solicitud (todas pasan por borrador → enviada → aprobada):
+ *   extra_plan      fondos adicionales (suplemento).
+ *   reclasificacion mover fondos de una unidad a otra (devolución en el
+ *                   origen, suplemento en el destino).
+ *   provision       servicio recibido con factura pendiente: reserva el
+ *                   sobrante del trimestre para que no se retire al cierre.
+ *   ahorro          fondos que no se usarán: devolución anticipada.
+ */
+export type TipoSolicitud = "extra_plan" | "reclasificacion" | "provision" | "ahorro";
 
 export type EstadoSolicitud = "borrador" | "enviada" | "aprobada" | "rechazada";
 
-/** Fila de disponibilidad_trimestral(): el bolsillo de una OI en un trimestre. */
-export interface DisponibilidadTrimestre {
+/**
+ * Fila de fondos_mensuales(): la cuenta de fondos de una unidad en un mes.
+ * Terminología del reporte BW de Control Presupuestario. Solo `monto_real`
+ * es gasto; el resto es la cuenta de fondos del área.
+ */
+export interface FondoMensual {
   clave: string;
   id_oi: string | null;
   codigo_oi: string | null;
@@ -300,19 +313,26 @@ export interface DisponibilidadTrimestre {
   codigo_ceco: string | null;
   id_hunting_zone: string | null;
   hunting_zone: string | null;
+  /** Mes calendario (1-12). */
+  mes: number;
   trimestre: Trimestre;
-  estado_trimestre: EstadoTrimestre;
-  monto_plan: number;
-  monto_extra: number;
-  /** Sobrante del trimestre anterior salvado por una prórroga aprobada. */
-  arrastre_recibido: number;
-  /** plan + extra + arrastre recibido. */
+  /** cerrado = ya pasó · actual = mes en curso · futuro = por habilitar. */
+  estado_mes: EstadoTrimestre;
+  plan: number;
+  /** Extra plan + reclasificaciones que entran. */
+  suplementos: number;
+  /** Ahorros + reclasificaciones que salen. */
+  devoluciones: number;
+  /** Facturas contabilizadas en SAP: lo único que cuenta como gasto. */
+  monto_real: number;
+  /** Provisión del cierre del trimestre anterior (solo en su 1.er mes). */
+  provision_recibida: number;
+  /** Acumulado del trimestre hasta este mes. */
   disponible: number;
-  consumido: number;
-  saldo: number;
-  arrastre_siguiente: number;
-  /** Sobrante de un trimestre cerrado que ninguna prórroga salvó: se perdió. */
-  vencido: number;
+  /** Solo en el último mes de un trimestre cerrado. */
+  provision_siguiente: number;
+  /** Sobrante retirado por finanzas al cierre del trimestre. */
+  retirado: number;
 }
 
 export interface Solicitud {
@@ -321,6 +341,9 @@ export interface Solicitud {
   estado: EstadoSolicitud;
   id_oi: string | null;
   id_ceco: string | null;
+  /** Solo reclasificación: unidad que recibe los fondos. */
+  id_oi_destino: string | null;
+  id_ceco_destino: string | null;
   fy: number;
   trimestre: Trimestre | null;
   titulo: string;

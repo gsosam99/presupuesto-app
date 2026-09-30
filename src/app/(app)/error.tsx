@@ -10,8 +10,8 @@ import { Button } from "@/components/ui/Button";
  * Existe además del de la raíz para que un fallo de datos no se lleve puesto el
  * layout: acá el sidebar sigue en pie y el usuario puede irse a otra pantalla
  * sin recargar. Lo dispara sobre todo /fondos, que es la única página que lanza
- * en vez de renderizar el error inline (obtenerDisponibilidad, en
- * src/lib/presupuesto/disponibilidad.ts, hace throw si la RPC falla).
+ * en vez de renderizar el error inline (obtenerFondos, en
+ * src/lib/presupuesto/fondos.ts, hace throw si la RPC falla).
  */
 export default function ErrorArea({
   error,

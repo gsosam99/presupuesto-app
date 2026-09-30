@@ -1,6 +1,6 @@
 /**
  * Catálogos que necesita el formulario de facturas (alta y edición): órdenes
- * vigentes con sus fondos del trimestre, CeCos, encargados y sugerencias de
+ * vigentes con sus fondos del mes en curso, CeCos, encargados y sugerencias de
  * taxonomía. Lo usan /facturas (modal de edición) y /facturas/nueva.
  */
 
@@ -12,13 +12,13 @@ import type {
   OpcionSelect,
   Sugerencias,
 } from "@/components/facturas/FormularioFactura";
-import { trimestreActual } from "@/lib/fiscal";
+import { mesesDeTrimestre, trimestreActual } from "@/lib/fiscal";
+import { obtenerFondos } from "@/lib/presupuesto/fondos";
 import {
-  claveComprometido,
-  obtenerComprometido,
   obtenerFechaDatosSap,
-} from "@/lib/presupuesto/comprometido";
-import { obtenerDisponibilidad } from "@/lib/presupuesto/disponibilidad";
+  obtenerPreregistrado,
+  sumarPreregistrado,
+} from "@/lib/presupuesto/preregistrado";
 import { obtenerOrdenesInternasActivas } from "@/lib/presupuesto/ordenesInternas";
 import { etiquetaVigencia, vigenteEnFy } from "@/lib/presupuesto/vigencia";
 import type { Database } from "@/types/supabase";
@@ -28,7 +28,7 @@ export interface OpcionesFormularioFactura {
   cecos: OpcionCeco[];
   encargados: OpcionSelect[];
   sugerencias: Sugerencias;
-  /** Fecha de la última carga de SAP: el consumido es "al" esa fecha. */
+  /** Fecha de la última carga de SAP: el Real es "al" esa fecha. */
   fechaDatosSap: string | null;
   error: string | null;
 }
@@ -38,26 +38,37 @@ export async function obtenerOpcionesFormulario(
   fy: number,
 ): Promise<OpcionesFormularioFactura> {
   const tActual = trimestreActual();
-
-  // Fondos del trimestre en curso por OI: se muestran al elegir la orden, que
-  // es el momento en que hace falta saber si alcanza.
-  const disponibilidad = await obtenerDisponibilidad(supabase, fy).catch(() => []);
-  const fondosPorOi = new Map(
-    disponibilidad
-      .filter((d) => d.trimestre === tActual && d.id_oi)
-      .map((d) => [
-        d.id_oi as string,
-        { saldo: d.saldo, disponible: d.disponible, consumido: d.consumido },
-      ]),
+  const mesActual = new Date().getMonth() + 1;
+  // Meses del trimestre en curso hasta hoy: lo pre-registrado en ellos consume
+  // el mismo Disponible, que se acumula dentro del trimestre.
+  const mesesHastaHoy = mesesDeTrimestre(tActual).slice(
+    0,
+    mesesDeTrimestre(tActual).indexOf(mesActual) + 1,
   );
 
-  const [ois, hzs, cecosRes, tax, equipo, comprometido, fechaDatosSap] = await Promise.all([
+  // Fondos del mes en curso por OI: se muestran al elegir la orden, que es el
+  // momento en que hace falta saber si alcanza.
+  const fondos = await obtenerFondos(supabase, fy).catch(() => []);
+  const fondosPorOi = new Map(
+    fondos
+      .filter((f) => f.estado_mes === "actual" && f.id_oi)
+      .map((f) => {
+        const realTrimestre = fondos
+          .filter(
+            (x) => x.clave === f.clave && x.trimestre === f.trimestre && x.estado_mes !== "futuro",
+          )
+          .reduce((s, x) => s + x.monto_real, 0);
+        return [f.id_oi as string, { disponible: f.disponible, realTrimestre }];
+      }),
+  );
+
+  const [ois, hzs, cecosRes, tax, equipo, preregistrado, fechaDatosSap] = await Promise.all([
     obtenerOrdenesInternasActivas(supabase),
     supabase.from("hunting_zones").select("id, nombre").eq("activo", true).order("orden_display"),
     supabase.from("cecos").select("id, codigo_sap, nombre").eq("activo", true).order("codigo_sap"),
     supabase.from("v_valores_taxonomia").select("campo, valor").order("usos", { ascending: false }),
     supabase.from("miembros_equipo").select("id, nombre").eq("activo", true).order("nombre"),
-    obtenerComprometido(supabase, fy),
+    obtenerPreregistrado(supabase, fy),
     obtenerFechaDatosSap(supabase),
   ]);
 
@@ -68,7 +79,7 @@ export async function obtenerOpcionesFormulario(
   const ordenesInternas: OpcionOi[] = ois.data
     .filter((o) => o.tipo === "tag" || vigenteEnFy(o, fy))
     .map((o) => {
-      const fondos = fondosPorOi.get(o.id);
+      const fondosOi = fondosPorOi.get(o.id);
       return {
         id: o.id,
         codigo: o.codigo_oi,
@@ -77,10 +88,9 @@ export async function obtenerOpcionesFormulario(
         idCeco: o.id_ceco,
         idHuntingZone: o.id_hunting_zone,
         huntingZone: o.id_hunting_zone ? (hzPorId.get(o.id_hunting_zone) ?? null) : null,
-        saldoTrimestre: fondos?.saldo ?? null,
-        disponibleTrimestre: fondos?.disponible ?? null,
-        consumidoTrimestre: fondos?.consumido ?? null,
-        comprometidoTrimestre: comprometido.data.get(claveComprometido(o.id, tActual))?.usd ?? 0,
+        disponibleMes: fondosOi?.disponible ?? null,
+        realTrimestre: fondosOi?.realTrimestre ?? null,
+        preregistradoTrimestre: sumarPreregistrado(preregistrado.data, o.id, mesesHastaHoy).usd,
         vigencia: o.tipo === "tag" ? null : etiquetaVigencia(o),
       };
     });
@@ -106,6 +116,6 @@ export async function obtenerOpcionesFormulario(
     encargados: (equipo.data ?? []).map((m) => ({ id: m.id, etiqueta: m.nombre })),
     sugerencias,
     fechaDatosSap,
-    error: error?.message ?? comprometido.error,
+    error: error?.message ?? preregistrado.error,
   };
 }

@@ -22,7 +22,7 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 // ---------------------------------------------------------------------------
 
 type TipoPresupuestoDB = "plan" | "extra_plan";
-type TipoSolicitudDB = "extra_plan" | "prorroga";
+type TipoSolicitudDB = "extra_plan" | "prorroga" | "reclasificacion" | "ahorro" | "provision";
 type EstadoSolicitudDB = "borrador" | "enviada" | "aprobada" | "rechazada";
 type TipoOrdenInternaDB = "real" | "tag";
 type FuenteGastoDB = "sap_ceco" | "sap_oi" | "manual";
@@ -233,6 +233,8 @@ interface SolicitudesRow {
   estado: EstadoSolicitudDB;
   id_oi: string | null;
   id_ceco: string | null;
+  id_oi_destino: string | null;
+  id_ceco_destino: string | null;
   fy: number;
   trimestre: number | null;
   titulo: string;
@@ -253,6 +255,8 @@ interface SolicitudesInsert {
   estado?: EstadoSolicitudDB;
   id_oi?: string | null;
   id_ceco?: string | null;
+  id_oi_destino?: string | null;
+  id_ceco_destino?: string | null;
   fy: number;
   trimestre?: number | null;
   titulo: string;
