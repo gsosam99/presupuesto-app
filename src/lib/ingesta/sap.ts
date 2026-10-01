@@ -26,6 +26,7 @@ import {
   cargarIndiceExistentes,
   clasificarDuplicado,
   dentroDeRango,
+  hashDedupe,
 } from "@/lib/ingesta/duplicados";
 import { claveComparacion, normalizarNumeroFactura } from "@/lib/sap/normalizar";
 import type { FilaSap, LayoutSap, RechazoSap, ResultadoSap } from "@/lib/sap/parser";
@@ -112,6 +113,12 @@ async function traerTodo<T>(
 export interface FacturaPreregistrada {
   id: string;
   numeroNormalizado: string;
+  /** Tal como se registró en la app: es lo que se muestra. */
+  numeroFactura: string;
+  numeroOrden: string | null;
+  montoEstimado: number | null;
+  moneda: string;
+  idCeco: string | null;
   /** Número de cuenta del proveedor (código SAP). Desempata, no el nombre. */
   proveedorCodigo: string | null;
   idOi: string | null;
@@ -124,12 +131,23 @@ export interface FacturaPreregistrada {
 
 export interface Maestras {
   cecoPorCodigo: Map<string, string>;
-  oiPorCodigo: Map<string, { id: string; idCeco: string | null; idHz: string | null }>;
+  oiPorCodigo: Map<string, OiMaestra>;
+  /** Mismo contenido, con la clave en mayúsculas: el usuario escribe como quiere. */
+  oiPorCodigoMayus: Map<string, OiMaestra>;
   hzArchivable: Set<string>;
   /** Tags ordenados de más largo a más corto: #NEW.CAM debe ganarle a #CAM. */
   tags: Array<{ tag: string; idHz: string }>;
   /** Puede haber varias por número: SAP repite la factura por cada posición. */
   facturasPorNumero: Map<string, FacturaPreregistrada[]>;
+  facturaPorId: Map<string, FacturaPreregistrada>;
+}
+
+export interface OiMaestra {
+  id: string;
+  codigo: string;
+  tipo: "real" | "tag";
+  idCeco: string | null;
+  idHz: string | null;
 }
 
 export async function cargarMaestras(cliente: Cliente): Promise<Maestras> {
@@ -138,9 +156,10 @@ export async function cargarMaestras(cliente: Cliente): Promise<Maestras> {
     traerTodo<{
       id: string;
       codigo_oi: string;
+      tipo: "real" | "tag";
       id_ceco: string | null;
       id_hunting_zone: string | null;
-    }>(cliente, "ordenes_internas", "id, codigo_oi, id_ceco, id_hunting_zone"),
+    }>(cliente, "ordenes_internas", "id, codigo_oi, tipo, id_ceco, id_hunting_zone"),
     traerTodo<{ id: string; archivar_automatico: boolean }>(
       cliente,
       "hunting_zones",
@@ -153,9 +172,14 @@ export async function cargarMaestras(cliente: Cliente): Promise<Maestras> {
     ),
     traerTodo<{
       id: string;
+      numero_factura: string;
       numero_normalizado: string | null;
+      numero_orden: string | null;
+      monto_estimado: number | null;
+      moneda: string;
       proveedor_codigo: string | null;
       id_oi: string | null;
+      id_ceco: string | null;
       id_hunting_zone: string | null;
       id_encargado: string | null;
       fase: string | null;
@@ -165,16 +189,22 @@ export async function cargarMaestras(cliente: Cliente): Promise<Maestras> {
     }>(
       cliente,
       "facturas_preregistradas",
-      "id, numero_normalizado, proveedor_codigo, id_oi, id_hunting_zone, id_encargado, fase, motivo, detalle, activo",
+      "id, numero_factura, numero_normalizado, numero_orden, monto_estimado, moneda, proveedor_codigo, id_oi, id_ceco, id_hunting_zone, id_encargado, fase, motivo, detalle, activo",
     ),
   ]);
 
   const facturasPorNumero = new Map<string, FacturaPreregistrada[]>();
+  const facturaPorId = new Map<string, FacturaPreregistrada>();
   for (const f of facturas) {
     if (!f.activo || !f.numero_normalizado) continue;
     const entrada: FacturaPreregistrada = {
       id: f.id,
       numeroNormalizado: f.numero_normalizado,
+      numeroFactura: f.numero_factura,
+      numeroOrden: f.numero_orden,
+      montoEstimado: f.monto_estimado === null ? null : Number(f.monto_estimado),
+      moneda: f.moneda,
+      idCeco: f.id_ceco,
       proveedorCodigo: f.proveedor_codigo,
       idOi: f.id_oi,
       idHz: f.id_hunting_zone,
@@ -183,24 +213,32 @@ export async function cargarMaestras(cliente: Cliente): Promise<Maestras> {
       motivo: f.motivo,
       detalle: f.detalle,
     };
+    facturaPorId.set(f.id, entrada);
     const previas = facturasPorNumero.get(f.numero_normalizado);
     if (previas) previas.push(entrada);
     else facturasPorNumero.set(f.numero_normalizado, [entrada]);
   }
 
+  const oiMaestras: OiMaestra[] = ois.map((o) => ({
+    id: o.id,
+    codigo: o.codigo_oi,
+    tipo: o.tipo,
+    idCeco: o.id_ceco,
+    idHz: o.id_hunting_zone,
+  }));
+
   return {
     cecoPorCodigo: new Map(cecos.map((c) => [c.codigo_sap, c.id])),
-    oiPorCodigo: new Map(
-      ois.map((o) => [
-        o.codigo_oi,
-        { id: o.id, idCeco: o.id_ceco, idHz: o.id_hunting_zone },
-      ]),
+    oiPorCodigo: new Map(oiMaestras.map((o) => [o.codigo, o])),
+    oiPorCodigoMayus: new Map(
+      oiMaestras.map((o) => [o.codigo.toUpperCase(), o]),
     ),
     hzArchivable: new Set(hzs.filter((h) => h.archivar_automatico).map((h) => h.id)),
     tags: tags
       .map((t) => ({ tag: t.tag.toUpperCase(), idHz: t.id_hunting_zone }))
       .sort((a, b) => b.tag.length - a.tag.length),
     facturasPorNumero,
+    facturaPorId,
   };
 }
 
@@ -256,6 +294,8 @@ export interface OpcionesIngesta {
   filtro?: FiltroCarga;
   /** Agrupa los archivos subidos juntos en el asistente de Triaje. */
   idLote?: string | null;
+  /** Decisiones del asistente (pasos 3 a 5), por clave de fila. Ver aplicarAjuste. */
+  ajustes?: Record<string, AjusteGasto>;
 }
 
 export interface RegistroGasto {
@@ -389,6 +429,199 @@ export function clasificarFilas(
   };
 }
 
+/**
+ * Decisión tomada en el asistente de carga sobre una fila, antes de escribir
+ * nada. Viaja del navegador como CRITERIO: el servidor la resuelve contra las
+ * maestras (igual que la Sala de Triaje), nunca acepta ids de destino a ciegas.
+ */
+export interface AjusteGasto {
+  /** undefined = no tocar · null = deshacer el cruce automático · id = asociar a mano. */
+  id_factura_preregistrada?: string | null;
+  /** Código de Orden Interna o etiqueta (#CAM). */
+  asignacion?: string | null;
+  fase?: string | null;
+  motivo?: string | null;
+  detalle?: string | null;
+  /** undefined = no tocar · null = quitar. */
+  id_encargado?: string | null;
+  estado?: "aprobado" | "pendiente" | "excluido";
+}
+
+function texto(valor: string | null | undefined): string | null {
+  const v = valor?.trim();
+  return v ? v : null;
+}
+
+/**
+ * Aplica una decisión del asistente a una fila ya clasificada. Mismas reglas
+ * que PATCH /api/triaje, para que dar una fila por buena en el asistente o en
+ * la Sala de Triaje produzca exactamente el mismo gasto.
+ *
+ * Devuelve un aviso cuando la decisión no se pudo aplicar entera (OI que no
+ * existe, aprobar sin proyecto): la fila queda pendiente y el aviso se
+ * muestra en el asistente.
+ */
+export function aplicarAjuste(
+  registro: RegistroGasto,
+  fila: FilaSap,
+  layout: LayoutSap,
+  ajuste: AjusteGasto,
+  maestras: Maestras,
+): { registro: RegistroGasto; aviso: string | null } {
+  let r: RegistroGasto = { ...registro };
+  let aviso: string | null = null;
+
+  // Deshacer el cruce automático: se reclasifica como si la factura no
+  // existiera, así se va todo lo que había heredado de ella.
+  if (
+    ajuste.id_factura_preregistrada === null &&
+    r.id_factura_preregistrada !== null
+  ) {
+    r = clasificarFilas(
+      [fila],
+      layout,
+      { ...maestras, facturasPorNumero: new Map() },
+      r.id_carga,
+    ).registros[0];
+  }
+
+  if (ajuste.id_factura_preregistrada) {
+    const f = maestras.facturaPorId.get(ajuste.id_factura_preregistrada);
+    if (!f) {
+      aviso = "La factura elegida ya no existe o fue desactivada.";
+    } else {
+      r.id_factura_preregistrada = f.id;
+      r.metodo_cruce = "manual";
+      if (f.idEncargado) r.id_encargado = f.idEncargado;
+      if (!r.id_oi && f.idOi) r.id_oi = f.idOi;
+      if (f.idCeco) r.id_ceco = f.idCeco;
+      if (!r.id_hunting_zone && f.idHz) {
+        r.id_hunting_zone = f.idHz;
+        r.origen_hz = "prerregistro";
+      }
+      r.fase = r.fase ?? f.fase;
+      r.motivo = r.motivo ?? f.motivo;
+      r.detalle = r.detalle ?? f.detalle;
+    }
+  }
+
+  const asignacion = texto(ajuste.asignacion);
+  if (asignacion) {
+    const clave = asignacion.toUpperCase();
+    const oi = maestras.oiPorCodigoMayus.get(clave);
+    const tag = clave.startsWith("#")
+      ? maestras.tags.find((t) => t.tag === clave)
+      : undefined;
+    if (oi) {
+      // Real: arrastra su CeCo padre. Tag: el CeCo que trajo SAP se conserva.
+      r.id_oi = oi.id;
+      if (oi.tipo === "real" && oi.idCeco) r.id_ceco = oi.idCeco;
+      if (oi.idHz) {
+        r.id_hunting_zone = oi.idHz;
+        r.origen_hz = oi.tipo === "real" ? "orden_interna" : "manual";
+      }
+    } else if (tag) {
+      r.id_hunting_zone = tag.idHz;
+      r.origen_hz = "manual";
+    } else {
+      aviso = `"${asignacion}" no existe en la maestra de órdenes internas ni como etiqueta.`;
+    }
+  }
+
+  if (texto(ajuste.fase)) r.fase = texto(ajuste.fase);
+  if (texto(ajuste.motivo)) r.motivo = texto(ajuste.motivo);
+  if (texto(ajuste.detalle)) r.detalle = texto(ajuste.detalle);
+  if (ajuste.id_encargado !== undefined) r.id_encargado = ajuste.id_encargado;
+
+  if (ajuste.estado === "excluido" || ajuste.estado === "pendiente") {
+    r.estado_revision = ajuste.estado;
+  } else if (ajuste.estado === "aprobado") {
+    // Aprobar sin Hunting Zone dejaría un gasto sin proyecto contando en los KPIs.
+    if (r.id_hunting_zone !== null && aviso === null) {
+      r.estado_revision = "aprobado";
+    } else {
+      r.estado_revision = "pendiente";
+      aviso ??=
+        "Falta el proyecto: escribe la Orden Interna real, una etiqueta (#CAM) o asocia una factura pre-registrada.";
+    }
+  }
+
+  return { registro: r, aviso };
+}
+
+/** Clave estable de una fila entre el análisis y la confirmación. */
+export function claveFila(f: FilaSap): string {
+  return hashDedupe({
+    proveedor: f.proveedor,
+    factura: f.factura,
+    textoReferencia: f.textoReferencia,
+    fecha: f.fecha,
+    montoReal: f.montoReal,
+  });
+}
+
+export interface FilasFiltradas {
+  filas: FilaSap[];
+  omitidasPorFecha: number;
+  omitidasPorProbable: number;
+  /** Idénticas a un gasto ya cargado (o repetidas dentro del archivo). */
+  exactas: FilaSap[];
+}
+
+/**
+ * Acotamiento elegido en el asistente: rango de fechas y, si se pidió, fuera
+ * los probables repetidos. Las exactas se separan pero NO se quitan de
+ * `filas`: el upsert las ignora igual y así quedan contadas como duplicadas.
+ */
+export async function filtrarFilas(
+  cliente: Cliente,
+  parseado: ResultadoSap,
+  filtro: FiltroCarga,
+): Promise<FilasFiltradas> {
+  const porFecha = parseado.filas.filter((f) =>
+    dentroDeRango(f.fecha, filtro.desde, filtro.hasta),
+  );
+  const omitidasPorFecha = parseado.filas.length - porFecha.length;
+  if (porFecha.length === 0) {
+    return { filas: [], omitidasPorFecha, omitidasPorProbable: 0, exactas: [] };
+  }
+
+  const fechas = porFecha.map((f) => f.fecha).sort();
+  const indice = await cargarIndiceExistentes(
+    cliente,
+    fechas[0],
+    fechas[fechas.length - 1],
+  );
+
+  const filas: FilaSap[] = [];
+  const exactas: FilaSap[] = [];
+  const vistas = new Set<string>();
+  let omitidasPorProbable = 0;
+
+  for (const f of porFecha) {
+    const estado = clasificarDuplicado(
+      {
+        proveedor: f.proveedor,
+        factura: f.factura,
+        textoReferencia: f.textoReferencia,
+        fecha: f.fecha,
+        montoReal: f.montoReal,
+      },
+      indice,
+    );
+    if (estado === "probable" && filtro.omitirProbables) {
+      omitidasPorProbable += 1;
+      continue;
+    }
+    const clave = claveFila(f);
+    if (estado === "exacta" || vistas.has(clave)) exactas.push(f);
+    vistas.add(clave);
+    filas.push(f);
+  }
+
+  return { filas, omitidasPorFecha, omitidasPorProbable, exactas };
+}
+
 export async function ingestarSap(
   cliente: Cliente,
   parseado: ResultadoSap,
@@ -398,39 +631,14 @@ export async function ingestarSap(
   const rechazos: RechazoSap[] = [...parseado.rechazos];
   const filtro = opciones.filtro ?? SIN_FILTRO;
 
-  // --- Acotamiento elegido en la previsualización ---------------------------
+  // --- Acotamiento elegido en el asistente ----------------------------------
   // Se recalcula acá en vez de aceptar del cliente una lista de filas a
   // insertar: el navegador decide QUÉ criterio aplicar, nunca qué se escribe.
-  const porFecha = parseado.filas.filter((f) =>
-    dentroDeRango(f.fecha, filtro.desde, filtro.hasta),
+  const { filas, omitidasPorFecha, omitidasPorProbable } = await filtrarFilas(
+    cliente,
+    parseado,
+    filtro,
   );
-  const omitidasPorFecha = parseado.filas.length - porFecha.length;
-
-  let filas = porFecha;
-  let omitidasPorProbable = 0;
-
-  if (filtro.omitirProbables && porFecha.length > 0) {
-    const fechas = porFecha.map((f) => f.fecha).sort();
-    const indice = await cargarIndiceExistentes(
-      cliente,
-      fechas[0],
-      fechas[fechas.length - 1],
-    );
-    filas = porFecha.filter(
-      (f) =>
-        clasificarDuplicado(
-          {
-            proveedor: f.proveedor,
-            factura: f.factura,
-            textoReferencia: f.textoReferencia,
-            fecha: f.fecha,
-            montoReal: f.montoReal,
-          },
-          indice,
-        ) !== "probable",
-    );
-    omitidasPorProbable = porFecha.length - filas.length;
-  }
 
   const { data: carga, error: errorCarga } = await cliente
     .from("cargas")
@@ -451,8 +659,18 @@ export async function ingestarSap(
   }
   const idCarga = carga.id as string;
 
-  const { registros, conMatchFactura, facturasAmbiguas, conTagInferido, oisDesconocidas } =
-    clasificarFilas(filas, parseado.layout, maestras, idCarga);
+  const clasificacion = clasificarFilas(filas, parseado.layout, maestras, idCarga);
+  const { conMatchFactura, facturasAmbiguas, conTagInferido, oisDesconocidas } =
+    clasificacion;
+
+  // Decisiones del asistente (pasos 3 a 5), aplicadas antes de escribir.
+  const ajustes = opciones.ajustes ?? {};
+  const registros = clasificacion.registros.map((r, i) => {
+    const ajuste = ajustes[claveFila(filas[i])];
+    return ajuste
+      ? aplicarAjuste(r, filas[i], parseado.layout, ajuste, maestras).registro
+      : r;
+  });
 
   // --- Inserción por lotes -------------------------------------------------
   let insertadas = 0;

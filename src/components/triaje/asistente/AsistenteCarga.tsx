@@ -1,42 +1,99 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { useRouter } from "next/navigation";
 
-import { PasosAsistente } from "@/components/triaje/asistente/PasosAsistente";
+import {
+  PasosAsistente,
+  PASOS,
+  type NumeroPaso,
+} from "@/components/triaje/asistente/PasosAsistente";
+import { avisarNavegacion } from "@/components/nav/BarraNavegacion";
 import { etiquetaMes, finDeMes, inclusionDelMes } from "@/components/triaje/asistente/meses";
+import { PlanCruceAutomatico } from "@/components/triaje/asistente/plan/PlanCruceAutomatico";
+import { PlanMatchManual } from "@/components/triaje/asistente/plan/PlanMatchManual";
+import { PlanRezagadas } from "@/components/triaje/asistente/plan/PlanRezagadas";
+import { PlanResumen } from "@/components/triaje/asistente/plan/PlanResumen";
+import {
+  agruparAutomaticos,
+  type AjusteGasto,
+  type Ajustes,
+  type GrupoAutomatico,
+} from "@/components/triaje/asistente/plan/tipos";
+import type { OpcionAsignacion, Sugerencias } from "@/components/triaje/TablaTriaje";
+import { useAvisos } from "@/components/ui/Avisos";
 import { Button } from "@/components/ui/Button";
+import { ModalConfirmacion } from "@/components/ui/ModalConfirmacion";
 import { fyEtiqueta } from "@/lib/fiscal";
 import { moneda } from "@/lib/format";
+import type { PlanCarga } from "@/lib/ingesta/planCarga";
 import type { ArchivoPrevio } from "@/lib/ingesta/previsualizacion";
+import type { FacturaSinCruzar } from "@/lib/triaje/lote";
+
+type ErrorArchivo = { archivo: string; motivo: string };
+
+interface RespuestaPlan {
+  plan?: PlanCarga;
+  errores?: ErrorArchivo[];
+  error?: string;
+}
 
 interface RespuestaCarga {
   idLote?: string | null;
-  errores?: Array<{ archivo: string; motivo: string }>;
+  errores?: ErrorArchivo[];
   error?: string;
+}
+
+interface Props {
+  /** Facturas pre-registradas sin cruzar, para el match manual (paso 4). */
+  facturas: FacturaSinCruzar[];
+  /** Catálogos de la grilla de rezagadas (paso 5). */
+  asignaciones: OpcionAsignacion[];
+  sugerencias: Sugerencias;
+  encargados: Array<{ id: string; etiqueta: string }>;
+}
+
+/** Combina una decisión nueva con la previa de la fila. */
+function combinar(previo: AjusteGasto | undefined, nuevo: AjusteGasto): AjusteGasto {
+  return { ...previo, ...nuevo };
 }
 
 const CONTROL_FECHA =
   "mt-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-200";
 
 /**
- * Pasos 1 y 2 del asistente de cruce. Nada se escribe hasta "Cargar y
- * cruzar": el paso 1 analiza los archivos contra lo ya cargado y el 2 acota
- * el rango. Al confirmar, el servidor vuelve a aplicar el filtro (no confía
- * en una lista de filas del navegador) y devuelve el lote para seguir.
+ * Asistente de carga de SAP, de punta a punta. NADA se escribe hasta
+ * "Confirmar y registrar" en el resumen (paso 6):
+ *
+ *   1-2  analizan los archivos contra lo ya cargado y acotan el rango.
+ *   3-5  trabajan sobre un plan en memoria que calcula el servidor
+ *        (modo=plan): deshacer cruces, asociar facturas, completar rezagadas.
+ *        Cada decisión se guarda como criterio (`ajustes`) y el plan se
+ *        recalcula al cambiar de paso.
+ *   6    muestra el plan final; al confirmar, el servidor lo vuelve a calcular
+ *        con las mismas decisiones y recién ahí escribe.
  */
-export function AsistenteCarga() {
+export function AsistenteCarga({ facturas, asignaciones, sugerencias, encargados }: Props) {
   const router = useRouter();
+  const avisos = useAvisos();
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const [paso, setPaso] = useState<1 | 2>(1);
+  const [paso, setPaso] = useState<NumeroPaso>(1);
+  const [alcanzado, setAlcanzado] = useState<NumeroPaso>(1);
+  const [plan, setPlan] = useState<PlanCarga | null>(null);
+  const [gruposAuto, setGruposAuto] = useState<GrupoAutomatico[]>([]);
+  const [ajustes, setAjustes] = useState<Ajustes>({});
+  const [calculando, setCalculando] = useState(false);
+  const [confirmando, setConfirmando] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
+  /** Rango con el que se armó el plan: si cambia, las decisiones ya no aplican. */
+  const [filtroDelPlan, setFiltroDelPlan] = useState<string | null>(null);
   const [arrastrando, setArrastrando] = useState(false);
   const [analizando, setAnalizando] = useState(false);
-  const [cargando, setCargando] = useState(false);
   const [archivos, setArchivos] = useState<File[]>([]);
   const [previas, setPrevias] = useState<ArchivoPrevio[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [errores, setErrores] = useState<Array<{ archivo: string; motivo: string }>>([]);
+  const [errores, setErrores] = useState<ErrorArchivo[]>([]);
 
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
@@ -137,44 +194,179 @@ export function AsistenteCarga() {
     }
   }, []);
 
-  async function cargar() {
-    setCargando(true);
+  /** Archivos + rango elegidos, en el FormData que esperan las dos llamadas. */
+  function datosCarga(modo: "plan" | "confirmar", decisiones: Ajustes): FormData {
+    const formData = new FormData();
+    for (const a of archivos) formData.append("archivos", a);
+    if (desde) formData.append("desde", desde);
+    if (hasta) formData.append("hasta", hasta);
+    if (omitirProbables) formData.append("omitirProbables", "true");
+    // El paso 1 ya mostró si el archivo se había procesado antes.
+    formData.append("forzar", "true");
+    formData.append("modo", modo);
+    formData.append("ajustes", JSON.stringify(decisiones));
+    return formData;
+  }
+
+  /** Pide al servidor el plan con las decisiones dadas. No escribe nada. */
+  async function planificar(decisiones: Ajustes): Promise<PlanCarga | null> {
+    setCalculando(true);
     setError(null);
     setErrores([]);
-
     try {
-      const formData = new FormData();
-      for (const a of archivos) formData.append("archivos", a);
-      if (desde) formData.append("desde", desde);
-      if (hasta) formData.append("hasta", hasta);
-      if (omitirProbables) formData.append("omitirProbables", "true");
-      // El paso 1 ya mostró si el archivo se había procesado antes.
-      formData.append("forzar", "true");
+      const res = await fetch("/api/cargas/sap", {
+        method: "POST",
+        body: datosCarga("plan", decisiones),
+      });
+      const json = (await res.json()) as RespuestaPlan;
+      if (!res.ok || !json.plan) {
+        setError(json.error ?? "No se pudo analizar la carga.");
+        return null;
+      }
+      setErrores(json.errores ?? []);
+      setPlan(json.plan);
+      return json.plan;
+    } catch {
+      setError("No se pudo conectar con el servidor.");
+      return null;
+    } finally {
+      setCalculando(false);
+    }
+  }
 
-      const res = await fetch("/api/cargas/sap", { method: "POST", body: formData });
+  /**
+   * Paso 2 → 3. Con el mismo rango que el plan vigente se sigue donde se
+   * estaba; con otro rango se arma un plan nuevo, sin decisiones.
+   */
+  async function empezarCruce() {
+    const filtro = `${desde}|${hasta}|${omitirProbables}`;
+    if (plan !== null && filtro === filtroDelPlan) {
+      await irA(3);
+      return;
+    }
+    const nuevo = await planificar({});
+    if (!nuevo) return;
+    setFiltroDelPlan(filtro);
+    setAjustes({});
+    setGruposAuto(agruparAutomaticos(nuevo.filas, nuevo.nombres));
+    setPaso(3);
+    setAlcanzado(3);
+  }
+
+  /** Cambia de paso recalculando el plan con las decisiones tomadas. */
+  async function irA(n: NumeroPaso) {
+    if (n <= 2) {
+      setPaso(n);
+      return;
+    }
+    // Se cambió el rango en el paso 2: el plan (y sus decisiones) se rehace.
+    if (`${desde}|${hasta}|${omitirProbables}` !== filtroDelPlan) {
+      await empezarCruce();
+      return;
+    }
+    const nuevo = await planificar(ajustes);
+    if (!nuevo) return;
+    setPaso(n);
+    setAlcanzado((a) => (n > a ? n : a));
+  }
+
+  /**
+   * Guarda una decisión y la refleja en el plan al instante (para que la
+   * fila salga de la lista). El servidor la valida al recalcular: si no se
+   * pudo aplicar, la fila vuelve a pendiente con un aviso.
+   */
+  const ajustar = useCallback((claves: string[], ajuste: AjusteGasto) => {
+    const afectadas = new Set(claves);
+    setAjustes((prev) => {
+      const sig = { ...prev };
+      for (const c of claves) sig[c] = combinar(prev[c], ajuste);
+      return sig;
+    });
+    setPlan((p) =>
+      p === null
+        ? p
+        : {
+            ...p,
+            filas: p.filas.map((f) => {
+              if (!afectadas.has(f.clave)) return f;
+              const g = { ...f, ajustada: true, aviso: null };
+              if (ajuste.id_factura_preregistrada === null) {
+                g.id_factura_preregistrada = null;
+                g.metodo_cruce = null;
+              } else if (ajuste.id_factura_preregistrada) {
+                g.id_factura_preregistrada = ajuste.id_factura_preregistrada;
+                g.metodo_cruce = "manual";
+              }
+              if (ajuste.estado) g.estado_revision = ajuste.estado;
+              return g;
+            }),
+          },
+    );
+  }, []);
+
+  /** Deshace una decisión. Se recalcula de inmediato: no hay cómo adivinar el estado previo. */
+  async function revertir(claves: string[], campos: Array<keyof AjusteGasto>) {
+    const sig: Ajustes = { ...ajustes };
+    for (const c of claves) {
+      const a = { ...sig[c] };
+      for (const campo of campos) delete a[campo];
+      if (Object.keys(a).length === 0) delete sig[c];
+      else sig[c] = a;
+    }
+    setAjustes(sig);
+    await planificar(sig);
+  }
+
+  async function confirmar() {
+    setConfirmando(true);
+    setError(null);
+    setErrores([]);
+    try {
+      const res = await fetch("/api/cargas/sap", {
+        method: "POST",
+        body: datosCarga("confirmar", ajustes),
+      });
       const json = (await res.json()) as RespuestaCarga;
 
       if (!res.ok) {
-        setError(json.error ?? "No se pudo procesar la carga.");
+        setError(json.error ?? "No se pudo registrar la carga.");
         return;
       }
       if (!json.idLote) {
         setErrores(json.errores ?? []);
-        setError("Ningún archivo se pudo cargar.");
+        setError("Ningún archivo se pudo registrar.");
         return;
       }
 
-      router.push(`/triaje/lote/${json.idLote}?paso=3`);
+      avisos.exito("Carga registrada.");
+      setPlan(null);
+      avisarNavegacion();
+      router.push(`/triaje/lote/${json.idLote}?paso=6`);
       router.refresh();
     } catch {
       setError("No se pudo conectar con el servidor.");
     } finally {
-      setCargando(false);
+      setConfirmando(false);
     }
   }
 
+  // Hay decisiones sin registrar: avisar antes de cerrar o recargar la pestaña.
+  const hayPlanSinConfirmar = plan !== null && paso >= 3;
+  useEffect(() => {
+    if (!hayPlanSinConfirmar) return;
+    const handler = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [hayPlanSinConfirmar]);
+
   function reiniciar() {
     setPaso(1);
+    setAlcanzado(1);
+    setPlan(null);
+    setAjustes({});
+    setGruposAuto([]);
+    setFiltroDelPlan(null);
+    setCancelando(false);
     setPrevias(null);
     setArchivos([]);
     setError(null);
@@ -189,7 +381,37 @@ export function AsistenteCarga() {
 
   return (
     <div>
-      <PasosAsistente actual={paso} />
+      <PasosAsistente
+        actual={paso}
+        alcanzado={alcanzado}
+        onIr={(n) => void irA(n)}
+        deshabilitado={calculando || confirmando}
+        contadores={
+          plan
+            ? {
+                4: plan.filas.filter(
+                  (f) => f.estado_revision === "pendiente" && f.id_factura_preregistrada === null,
+                ).length,
+                5: plan.filas.filter((f) => f.estado_revision === "pendiente").length,
+              }
+            : undefined
+        }
+      />
+
+      {cancelando && (
+        <ModalConfirmacion
+          titulo="Cancelar esta carga"
+          textoConfirmar="Cancelar carga"
+          peligro
+          onConfirmar={reiniciar}
+          onCancelar={() => setCancelando(false)}
+        >
+          <p>
+            Todavía no se registró nada. Se descartan los archivos y las decisiones que tomaste en
+            el asistente.
+          </p>
+        </ModalConfirmacion>
+      )}
 
       {/* ---------------- Paso 1: qué se va a cargar ---------------- */}
       {paso === 1 && (
@@ -211,6 +433,7 @@ export function AsistenteCarga() {
                 Arrastra acá los <span className="font-medium text-slate-900">.xls</span> de SAP, o
               </p>
               <Button
+                cargando={analizando}
                 type="button"
                 variante="secundario"
                 className="mt-3"
@@ -287,10 +510,21 @@ export function AsistenteCarga() {
                 <div className="ui-kpi">
                   <dt className="kl">Ya cargadas</dt>
                   <dd className="kv">{totalExactas}</dd>
+                  <dd className="mt-1 text-[11px] text-[var(--muted)]">
+                    Idénticas a un gasto que ya está en la app. Se ignoran solas.
+                  </dd>
                 </div>
                 <div className="ui-kpi">
-                  <dt className="kl">Probables repetidos</dt>
-                  <dd className="kv">{totalProbables}</dd>
+                  <dt className="kl">Posibles repetidos</dt>
+                  <dd
+                    className="kv"
+                    style={{ color: totalProbables > 0 ? "var(--warn)" : undefined }}
+                  >
+                    {totalProbables}
+                  </dd>
+                  <dd className="mt-1 text-[11px] text-[var(--muted)]">
+                    Parecen un gasto ya cargado pero no son idénticos. Tú decides en el paso 2.
+                  </dd>
                 </div>
               </dl>
 
@@ -303,7 +537,7 @@ export function AsistenteCarga() {
                         <th className="px-3 py-2 font-medium">FY</th>
                         <th className="px-3 py-2 text-right font-medium">Nuevas</th>
                         <th className="px-3 py-2 text-right font-medium">Ya cargadas</th>
-                        <th className="px-3 py-2 text-right font-medium">Probables</th>
+                        <th className="px-3 py-2 text-right font-medium">Posibles repetidos</th>
                         <th className="px-3 py-2 text-right font-medium">Monto nuevo</th>
                       </tr>
                     </thead>
@@ -333,11 +567,20 @@ export function AsistenteCarga() {
                 </div>
               )}
 
-              <p className="mt-2 text-xs text-slate-500">
-                <strong>Ya cargadas</strong>: idénticas a un gasto que ya existe, la base las ignora
-                sola. <strong>Probables</strong>: misma fecha, factura y monto que un gasto
-                existente, pero con el proveedor o el texto escrito distinto.
-              </p>
+              <div className="mt-3 rounded-md border border-[var(--line)] bg-white px-4 py-3 text-xs text-[var(--ink-soft)]">
+                <p>
+                  <strong className="text-[var(--ink)]">Ya cargadas</strong>: la fila es idéntica
+                  (proveedor, factura, texto, fecha y monto) a un gasto que ya está en la app, por
+                  ejemplo porque este mismo reporte ya se subió. No se vuelven a registrar y no hay
+                  nada que decidir.
+                </p>
+                <p className="mt-1.5">
+                  <strong className="text-[var(--ink)]">Posibles repetidos</strong>: coinciden
+                  fecha, número de factura y monto con un gasto existente, pero el proveedor o el
+                  texto vienen escritos distinto (pasa entre el consolidado manual y SAP). Puede ser
+                  el mismo gasto o uno distinto: en el paso 2 eliges si se omiten.
+                </p>
+              </div>
 
               <div className="mt-5 flex flex-wrap gap-2">
                 <Button type="button" variante="secundario" onClick={reiniciar}>
@@ -424,8 +667,8 @@ export function AsistenteCarga() {
                   className="mt-0.5"
                 />
                 <span>
-                  Omitir las <strong>{totalProbables}</strong> filas marcadas como probables
-                  repetidos.
+                  Omitir los <strong>{totalProbables}</strong> posibles repetidos (recomendado si ya
+                  cargaste estos meses desde el consolidado manual).
                 </span>
               </label>
             )}
@@ -467,8 +710,7 @@ export function AsistenteCarga() {
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
             <p className="text-sm text-slate-700">
-              Se insertarán{" "}
-              <span className="font-semibold text-slate-900">{resumen.filas} filas</span>
+              Entrarían <span className="font-semibold text-slate-900">{resumen.filas} filas</span>
               {resumen.monto > 0 && ` · ${moneda.format(resumen.monto)}`}
               {resumen.parciales > 0 && (
                 <span className="text-slate-500">
@@ -478,28 +720,121 @@ export function AsistenteCarga() {
                 </span>
               )}
               <span className="block text-xs text-slate-500">
-                Al cargar, cada gasto se cruza con las facturas pre-registradas por número de
-                factura.
+                Todavía no se registra nada: en los pasos siguientes revisas los cruces con las
+                facturas y, al final, confirmas en el resumen.
               </span>
             </p>
             <div className="flex gap-2">
               <Button
                 type="button"
                 variante="secundario"
-                disabled={cargando}
+                disabled={calculando}
                 onClick={() => setPaso(1)}
               >
                 Atrás
               </Button>
               <Button
+                cargando={calculando}
                 type="button"
-                disabled={cargando || rangoInvalido || validos.length === 0}
-                onClick={() => void cargar()}
+                disabled={calculando || rangoInvalido || validos.length === 0}
+                onClick={() => void empezarCruce()}
               >
-                {cargando ? "Cargando y cruzando…" : "Cargar y cruzar"}
+                {calculando ? "Cruzando con las facturas…" : "Siguiente: cruce automático"}
               </Button>
             </div>
           </div>
+        </section>
+      )}
+
+      {/* ---------------- Pasos 3 a 6: plan en memoria ---------------- */}
+      {paso >= 3 && plan && (
+        <section className="relative mt-6" aria-busy={calculando}>
+          <h2 className="ui-section-title">
+            Paso {paso} · {PASOS[paso - 1]}
+          </h2>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            Nada se registra hasta que confirmes en el resumen.
+          </p>
+
+          <div className={`mt-4 transition-opacity ${calculando ? "opacity-50" : ""}`}>
+            {paso === 3 && (
+              <PlanCruceAutomatico
+                grupos={gruposAuto}
+                ajustes={ajustes}
+                onAjustar={ajustar}
+                onRevertir={(c, campos) => void revertir(c, campos)}
+              />
+            )}
+            {paso === 4 && (
+              <PlanMatchManual
+                filas={plan.filas}
+                facturas={facturas}
+                ajustes={ajustes}
+                onAjustar={ajustar}
+                onRevertir={(c, campos) => void revertir(c, campos)}
+              />
+            )}
+            {paso === 5 && (
+              <PlanRezagadas
+                filas={plan.filas}
+                nombres={plan.nombres}
+                asignaciones={asignaciones}
+                sugerencias={sugerencias}
+                encargados={encargados}
+                onAjustar={ajustar}
+              />
+            )}
+            {paso === 6 && (
+              <PlanResumen archivos={plan.archivos} filas={plan.filas} nombres={plan.nombres} />
+            )}
+          </div>
+
+          <nav
+            aria-label="Navegación del asistente"
+            className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--line)] pt-4"
+          >
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variante="secundario"
+                disabled={calculando || confirmando}
+                onClick={() => void irA((paso - 1) as NumeroPaso)}
+              >
+                ← {PASOS[paso - 2]}
+              </Button>
+              <Button
+                type="button"
+                variante="secundario"
+                disabled={calculando || confirmando}
+                onClick={() => setCancelando(true)}
+                className="text-[var(--bad)]"
+              >
+                Cancelar carga
+              </Button>
+            </div>
+            {paso < 6 ? (
+              <Button
+                cargando={calculando}
+                type="button"
+                onClick={() => void irA((paso + 1) as NumeroPaso)}
+              >
+                {calculando ? "Calculando…" : `${(PASOS as readonly string[])[paso]} →`}
+              </Button>
+            ) : (
+              <Button
+                cargando={confirmando}
+                type="button"
+                disabled={calculando || plan.filas.length === 0}
+                onClick={() => void confirmar()}
+              >
+                {confirmando
+                  ? "Registrando…"
+                  : plan.filas.length === 0
+                    ? "No hay gastos nuevos que registrar"
+                    : `Confirmar y registrar ${plan.filas.length} gastos`}
+              </Button>
+            )}
+          </nav>
         </section>
       )}
 

@@ -17,14 +17,30 @@ interface Props {
   idLote?: string;
   /** Pendientes por paso, para mostrar cuánto falta sin entrar. */
   contadores?: Partial<Record<NumeroPaso, number>>;
+  /**
+   * Asistente en memoria (carga sin confirmar): los pasos hasta `alcanzado`
+   * son botones que llaman a `onIr` en vez de links.
+   */
+  onIr?: (n: NumeroPaso) => void;
+  alcanzado?: NumeroPaso;
+  /** Mientras se recalcula el plan no se puede saltar de paso. */
+  deshabilitado?: boolean;
 }
 
 /**
- * Indicador de pasos del asistente de cruce. Los pasos 1 y 2 no escriben
- * nada; desde el 3 la carga ya existe y el estado de cada paso se deriva de
- * la base, así que se puede ir y volver entre ellos (y retomar otro día).
+ * Indicador de pasos del asistente de cruce. En una carga nueva nada se
+ * escribe hasta confirmar en el resumen (paso 6): los pasos ya visitados son
+ * botones (`onIr`). En un lote ya registrado (`idLote`), los pasos 3 a 6 son
+ * links y su estado se deriva de la base.
  */
-export function PasosAsistente({ actual, idLote, contadores }: Props) {
+export function PasosAsistente({
+  actual,
+  idLote,
+  contadores,
+  onIr,
+  alcanzado,
+  deshabilitado = false,
+}: Props) {
   return (
     <ol className="flex flex-wrap gap-x-1 gap-y-2 text-xs" aria-label="Pasos del asistente">
       {PASOS.map((titulo, i) => {
@@ -32,6 +48,7 @@ export function PasosAsistente({ actual, idLote, contadores }: Props) {
         const hecho = n < actual;
         const esActual = n === actual;
         const navegable = idLote !== undefined && n >= 3 && !esActual;
+        const clicable = onIr !== undefined && n <= (alcanzado ?? actual) && !esActual;
         const contador = contadores?.[n];
 
         const contenido = (
@@ -59,7 +76,16 @@ export function PasosAsistente({ actual, idLote, contadores }: Props) {
 
         return (
           <li key={titulo} className="flex items-center">
-            {navegable ? (
+            {clicable ? (
+              <button
+                type="button"
+                disabled={deshabilitado}
+                onClick={() => onIr(n)}
+                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[var(--muted)] hover:bg-[var(--line-soft)] disabled:cursor-wait"
+              >
+                {contenido}
+              </button>
+            ) : navegable ? (
               <Link
                 href={`/triaje/lote/${idLote}?paso=${n}`}
                 className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[var(--muted)] hover:bg-[var(--line-soft)]"
