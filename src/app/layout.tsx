@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Inter } from "next/font/google";
 import "./globals.css";
 
+import { DesvioEnlaceAuth } from "@/components/auth/DesvioEnlaceAuth";
+
 const geistSans = Geist({
   variable: "--font-sans",
   subsets: ["latin"],
@@ -32,6 +34,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         corresponde a código propio y solo afecta a este nodo.
       */}
       <body className="flex min-h-full flex-col" suppressHydrationWarning>
+        <DesvioEnlaceAuth />
         {children}
       </body>
     </html>

@@ -11,11 +11,11 @@
 
 import type { User } from "@supabase/supabase-js";
 
+import { RUTA_INVITACION } from "@/lib/equipo/rutas";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { AccesoMiembro } from "@/types";
 
-/** Ruta donde la persona invitada elige su contraseña. */
-export const RUTA_INVITACION = "/auth/invitacion";
+export { RUTA_INVITACION };
 
 function estadoDe(usuario: User | undefined): AccesoMiembro {
   if (!usuario) return { estado: "sin_cuenta", ultimoIngreso: null, invitadoEl: null };
