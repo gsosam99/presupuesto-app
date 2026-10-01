@@ -20,6 +20,18 @@ export interface SugerenciasIngreso {
   detalle: string[];
 }
 
+export interface FilaIngreso {
+  id: string;
+  mes: number;
+  id_hunting_zone: string;
+  concepto: string;
+  fase: string | null;
+  motivo: string | null;
+  detalle: string | null;
+  monto: number;
+  nota: string | null;
+}
+
 interface Props {
   /** Viene del selector global de la barra lateral; acá no se edita. */
   fy: number;
@@ -27,55 +39,81 @@ interface Props {
   sugerencias: SugerenciasIngreso;
   /** Mes preseleccionado: el mes calendario en curso si cae dentro del FY. */
   mesInicial: number;
+  /** Ingreso a corregir. Sin él, el formulario da de alta uno nuevo. */
+  inicial?: FilaIngreso;
+  /** Tras guardar, con el mensaje para el aviso. */
+  onGuardado: (mensaje: string) => void;
+  onCancelar: () => void;
 }
 
-export function FormularioIngreso({ fy, huntingZones, sugerencias, mesInicial }: Props) {
+/**
+ * Alta y corrección de un ingreso. Vive dentro de un modal (ver
+ * TablaIngresos): la tabla es la vista principal del módulo.
+ */
+export function FormularioIngreso({
+  fy,
+  huntingZones,
+  sugerencias,
+  mesInicial,
+  inicial,
+  onGuardado,
+  onCancelar,
+}: Props) {
   const router = useRouter();
+  const editando = inicial !== undefined;
 
-  const [mes, setMes] = useState(mesInicial);
-  const [idHz, setIdHz] = useState("");
+  const [mes, setMes] = useState(inicial?.mes ?? mesInicial);
+  const [idHz, setIdHz] = useState(inicial?.id_hunting_zone ?? "");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
+  const [registrados, setRegistrados] = useState(0);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget;
+    // Qué botón lo envió: "otro" deja el modal abierto para seguir cargando.
+    const seguir = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "otro";
     const datos = new FormData(form);
 
     setEnviando(true);
     setError(null);
-    setOk(null);
+
+    const cuerpo = {
+      mes,
+      id_hunting_zone: idHz,
+      monto: Number(datos.get("monto")),
+      concepto: String(datos.get("concepto") ?? ""),
+      fase: String(datos.get("fase") ?? ""),
+      motivo: String(datos.get("motivo") ?? ""),
+      detalle: String(datos.get("detalle") ?? ""),
+      nota: String(datos.get("nota") ?? ""),
+    };
 
     try {
       const res = await fetch("/api/ingresos", {
-        method: "POST",
+        method: editando ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fy,
-          mes,
-          id_hunting_zone: idHz,
-          monto: Number(datos.get("monto")),
-          concepto: String(datos.get("concepto") ?? ""),
-          fase: String(datos.get("fase") ?? ""),
-          motivo: String(datos.get("motivo") ?? ""),
-          detalle: String(datos.get("detalle") ?? ""),
-          nota: String(datos.get("nota") ?? ""),
-        }),
+        body: JSON.stringify(editando ? { id: inicial.id, ...cuerpo } : { fy, ...cuerpo }),
       });
       const json = (await res.json()) as { id?: string; error?: string };
 
       if (!res.ok) {
-        setError(json.error ?? "No se pudo registrar el ingreso.");
+        setError(json.error ?? "No se pudo guardar el ingreso.");
         return;
       }
 
-      // Se queda en la página: los ingresos se cargan de a varios seguidos.
-      // El mes y la Hunting Zone NO se resetean a propósito — lo habitual es
-      // cargar varias líneas del mismo período y proyecto.
-      form.reset();
-      setOk("Ingreso registrado.");
       router.refresh();
+      if (seguir) {
+        // El mes y la Hunting Zone NO se resetean a propósito: lo habitual es
+        // cargar varias líneas del mismo período y proyecto.
+        form.reset();
+        setRegistrados((n) => n + 1);
+        form.querySelector<HTMLInputElement>("#concepto")?.focus();
+        return;
+      }
+      onGuardado(
+        editando ? `Ingreso "${cuerpo.concepto.trim()}" actualizado.` : "Ingreso registrado.",
+      );
     } catch {
       setError("No se pudo conectar con el servidor.");
     } finally {
@@ -84,7 +122,7 @@ export function FormularioIngreso({ fy, huntingZones, sugerencias, mesInicial }:
   }
 
   return (
-    <form onSubmit={handleSubmit} className="ui-card p-5">
+    <form onSubmit={handleSubmit}>
       <div className="grid gap-4 sm:grid-cols-3">
         <div>
           <label htmlFor="fy" className={ETIQUETA}>
@@ -96,7 +134,7 @@ export function FormularioIngreso({ fy, huntingZones, sugerencias, mesInicial }:
             value={`FY ${fyEtiqueta(fy)}`}
             className={`mt-1 ${CONTROL} disabled:bg-slate-100 disabled:text-slate-600`}
           />
-          <p className={AYUDA}>Se cambia en el selector de la barra lateral.</p>
+          <p className={AYUDA}>Se cambia en la barra lateral.</p>
         </div>
 
         <div>
@@ -148,6 +186,7 @@ export function FormularioIngreso({ fy, huntingZones, sugerencias, mesInicial }:
             id="concepto"
             name="concepto"
             required
+            defaultValue={inicial?.concepto}
             sugerencias={sugerencias.concepto}
             className={`mt-1 ${CONTROL}`}
           />
@@ -164,6 +203,7 @@ export function FormularioIngreso({ fy, huntingZones, sugerencias, mesInicial }:
             type="number"
             step="0.01"
             required
+            defaultValue={inicial?.monto}
             className={`mt-1 ${CONTROL}`}
           />
           <p className={AYUDA}>En negativo si es una devolución.</p>
@@ -178,6 +218,7 @@ export function FormularioIngreso({ fy, huntingZones, sugerencias, mesInicial }:
           <CampoSugerido
             id="fase"
             name="fase"
+            defaultValue={inicial?.fase ?? ""}
             sugerencias={sugerencias.fase}
             className={`mt-1 ${CONTROL}`}
           />
@@ -189,6 +230,7 @@ export function FormularioIngreso({ fy, huntingZones, sugerencias, mesInicial }:
           <CampoSugerido
             id="motivo"
             name="motivo"
+            defaultValue={inicial?.motivo ?? ""}
             sugerencias={sugerencias.motivo}
             className={`mt-1 ${CONTROL}`}
           />
@@ -200,6 +242,7 @@ export function FormularioIngreso({ fy, huntingZones, sugerencias, mesInicial }:
           <CampoSugerido
             id="detalle"
             name="detalle"
+            defaultValue={inicial?.detalle ?? ""}
             sugerencias={sugerencias.detalle}
             className={`mt-1 ${CONTROL}`}
           />
@@ -210,7 +253,12 @@ export function FormularioIngreso({ fy, huntingZones, sugerencias, mesInicial }:
         <label htmlFor="nota" className={ETIQUETA}>
           Nota
         </label>
-        <input id="nota" name="nota" className={`mt-1 ${CONTROL}`} />
+        <input
+          id="nota"
+          name="nota"
+          defaultValue={inicial?.nota ?? ""}
+          className={`mt-1 ${CONTROL}`}
+        />
       </div>
 
       {error && (
@@ -218,15 +266,32 @@ export function FormularioIngreso({ fy, huntingZones, sugerencias, mesInicial }:
           {error}
         </p>
       )}
-      {ok && (
+      {registrados > 0 && !error && (
         <p className="mt-4 rounded-md bg-[rgba(30,138,138,0.1)] px-3 py-2 text-sm text-[var(--ok)]">
-          {ok}
+          {registrados === 1 ? "1 ingreso registrado" : `${registrados} ingresos registrados`}.
+          Puedes seguir cargando.
         </p>
       )}
 
-      <div className="mt-5">
-        <Button type="submit" disabled={enviando}>
-          {enviando ? "Registrando…" : "Registrar ingreso"}
+      {/* En móvil apilados, con la acción principal arriba; en escritorio, en
+          fila a la derecha (mismo orden que ModalConfirmacion). */}
+      <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button type="button" variante="secundario" disabled={enviando} onClick={onCancelar}>
+          {registrados > 0 ? "Cerrar" : "Cancelar"}
+        </Button>
+        {!editando && (
+          <Button
+            type="submit"
+            name="accion"
+            value="otro"
+            variante="secundario"
+            disabled={enviando}
+          >
+            Guardar y registrar otro
+          </Button>
+        )}
+        <Button cargando={enviando} type="submit" name="accion" value="cerrar" disabled={enviando}>
+          {enviando ? "Guardando…" : editando ? "Guardar cambios" : "Registrar ingreso"}
         </Button>
       </div>
     </form>

@@ -2,47 +2,61 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 
 import { useAvisos } from "@/components/ui/Avisos";
-import { CampoSugerido, ListaSugerencias } from "@/components/ui/CampoSugerido";
-import { CONTROL_CELDA, CONTROL_COMPACTO } from "@/components/ui/estilos";
+import { Button } from "@/components/ui/Button";
+import { CONTROL_COMPACTO } from "@/components/ui/estilos";
+import { BarraFiltros, CampoFiltro } from "@/components/ui/Filtros";
+import { Modal } from "@/components/ui/Modal";
 import { ModalConfirmacion } from "@/components/ui/ModalConfirmacion";
 import { MESES_FY, nombreMes } from "@/lib/fiscal";
 import { moneda } from "@/lib/format";
 
-import type { OpcionHz, SugerenciasIngreso } from "./FormularioIngreso";
+import {
+  FormularioIngreso,
+  type FilaIngreso,
+  type OpcionHz,
+  type SugerenciasIngreso,
+} from "./FormularioIngreso";
 
-export interface FilaIngreso {
-  id: string;
-  mes: number;
-  id_hunting_zone: string;
-  concepto: string;
-  fase: string | null;
-  motivo: string | null;
-  detalle: string | null;
-  monto: number;
-  nota: string | null;
-}
+export type { FilaIngreso };
 
 interface Props {
+  fy: number;
   filas: FilaIngreso[];
   huntingZones: OpcionHz[];
   sugerencias: SugerenciasIngreso;
-  /** El rol no puede editar ingresos: sin botones de edición ni borrado. */
+  /** Mes preseleccionado al registrar uno nuevo. */
+  mesInicial: number;
+  /** El rol no puede editar ingresos: sin alta, edición ni borrado. */
   soloLectura?: boolean;
 }
 
-type Parche = Partial<Omit<FilaIngreso, "id">>;
+/** null = cerrado · "nuevo" = alta · FilaIngreso = corrección. */
+type Formulario = null | "nuevo" | FilaIngreso;
 
-export function TablaIngresos({ filas, huntingZones, sugerencias, soloLectura = false }: Props) {
+/**
+ * Módulo de ingresos completo: listado con filtros, alta y corrección en un
+ * modal, y borrado con confirmación.
+ */
+export function TablaIngresos({
+  fy,
+  filas,
+  huntingZones,
+  sugerencias,
+  mesInicial,
+  soloLectura = false,
+}: Props) {
   const router = useRouter();
-
-  const [editando, setEditando] = useState<string | null>(null);
-  const [parche, setParche] = useState<Parche>({});
-  const [ocupado, setOcupado] = useState<string | null>(null);
   const avisos = useAvisos();
+
+  const [formulario, setFormulario] = useState<Formulario>(null);
   const [aBorrar, setABorrar] = useState<FilaIngreso | null>(null);
+  const [borrando, setBorrando] = useState(false);
   const [filtro, setFiltro] = useState("");
+  const [filtroMes, setFiltroMes] = useState("");
+  const [filtroHz, setFiltroHz] = useState("");
 
   const nombreHz = useMemo(
     () => new Map(huntingZones.map((h) => [h.id, h.nombre])),
@@ -51,104 +65,75 @@ export function TablaIngresos({ filas, huntingZones, sugerencias, soloLectura = 
 
   const visibles = useMemo(() => {
     const texto = filtro.trim().toLowerCase();
-    if (texto === "") return filas;
-    return filas.filter((f) =>
-      [
-        f.concepto,
-        f.fase,
-        f.motivo,
-        f.detalle,
-        f.nota,
-        nombreHz.get(f.id_hunting_zone),
-        nombreMes(f.mes),
-        String(f.monto),
-      ]
+    return filas.filter((f) => {
+      if (filtroMes && f.mes !== Number(filtroMes)) return false;
+      if (filtroHz && f.id_hunting_zone !== filtroHz) return false;
+      if (texto === "") return true;
+      return [f.concepto, f.fase, f.motivo, f.detalle, f.nota, String(f.monto)]
         .filter((v): v is string => typeof v === "string")
-        .some((v) => v.toLowerCase().includes(texto)),
-    );
-  }, [filas, filtro, nombreHz]);
+        .some((v) => v.toLowerCase().includes(texto));
+    });
+  }, [filas, filtro, filtroMes, filtroHz]);
 
   const total = visibles.reduce((s, f) => s + f.monto, 0);
-
-  function abrirEdicion(f: FilaIngreso) {
-    setEditando(f.id);
-    setParche({});
-  }
-
-  function campo<K extends keyof Parche>(f: FilaIngreso, clave: K): FilaIngreso[K] {
-    return (parche[clave] ?? f[clave]) as FilaIngreso[K];
-  }
-
-  async function guardar(id: string) {
-    if (Object.keys(parche).length === 0) {
-      setEditando(null);
-      return;
-    }
-
-    setOcupado(id);
-    try {
-      const res = await fetch("/api/ingresos", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, ...parche }),
-      });
-      const json = (await res.json()) as { error?: string };
-      if (!res.ok) {
-        avisos.error(json.error ?? "No se pudo guardar el cambio.");
-        return;
-      }
-      setEditando(null);
-      setParche({});
-      router.refresh();
-    } catch {
-      avisos.error("No se pudo conectar con el servidor.");
-    } finally {
-      setOcupado(null);
-    }
-  }
+  const hayFiltros = filtro !== "" || filtroMes !== "" || filtroHz !== "";
 
   async function borrar(f: FilaIngreso) {
-    setOcupado(f.id);
+    setBorrando(true);
     try {
       const res = await fetch(`/api/ingresos?id=${encodeURIComponent(f.id)}`, {
         method: "DELETE",
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) {
-        avisos.error(json.error ?? "No se pudo borrar el ingreso.");
+        avisos.error(json.error ?? "No se pudo eliminar el ingreso.");
         return;
       }
       setABorrar(null);
-      avisos.exito(`Ingreso "${f.concepto}" borrado.`);
+      avisos.exito(`Ingreso "${f.concepto}" eliminado.`);
       router.refresh();
     } catch {
       avisos.error("No se pudo conectar con el servidor.");
     } finally {
-      setOcupado(null);
+      setBorrando(false);
     }
-  }
-
-  if (filas.length === 0) {
-    return (
-      <p className="ui-card px-4 py-10 text-center text-sm text-[var(--muted)]">
-        Todavía no hay ingresos cargados en este año fiscal.
-      </p>
-    );
   }
 
   return (
     <div>
-      <ListaSugerencias id="sug-concepto" sugerencias={sugerencias.concepto} />
-      <ListaSugerencias id="sug-fase" sugerencias={sugerencias.fase} />
-      <ListaSugerencias id="sug-motivo" sugerencias={sugerencias.motivo} />
-      <ListaSugerencias id="sug-detalle" sugerencias={sugerencias.detalle} />
+      {formulario !== null && (
+        <Modal
+          titulo={formulario === "nuevo" ? "Registrar ingreso" : "Editar ingreso"}
+          descripcion={
+            formulario === "nuevo"
+              ? "Lo que efectivamente cobró el proyecto. Se imputa directo a la Hunting Zone."
+              : undefined
+          }
+          onCerrar={() => setFormulario(null)}
+          ancho="lg"
+        >
+          <FormularioIngreso
+            key={formulario === "nuevo" ? "nuevo" : formulario.id}
+            fy={fy}
+            huntingZones={huntingZones}
+            sugerencias={sugerencias}
+            mesInicial={mesInicial}
+            inicial={formulario === "nuevo" ? undefined : formulario}
+            onCancelar={() => setFormulario(null)}
+            onGuardado={(mensaje) => {
+              setFormulario(null);
+              avisos.exito(mensaje);
+            }}
+          />
+        </Modal>
+      )}
 
       {aBorrar && (
         <ModalConfirmacion
-          titulo="Borrar ingreso"
-          textoConfirmar="Borrar"
+          titulo="Eliminar ingreso"
+          textoConfirmar="Eliminar"
           peligro
-          procesando={ocupado === aBorrar.id}
+          procesando={borrando}
           onConfirmar={() => void borrar(aBorrar)}
           onCancelar={() => setABorrar(null)}
         >
@@ -160,177 +145,164 @@ export function TablaIngresos({ filas, huntingZones, sugerencias, soloLectura = 
         </ModalConfirmacion>
       )}
 
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <input
-          type="search"
-          value={filtro}
-          onChange={(e) => setFiltro(e.target.value)}
-          placeholder="Buscar…"
-          aria-label="Buscar ingresos"
-          className={`w-full sm:w-64 ${CONTROL_COMPACTO}`}
-        />
-        <span className="text-xs text-[var(--muted)]">
-          {visibles.length} de {filas.length} · {moneda.format(total)}
-        </span>
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <BarraFiltros className="flex-1">
+          <CampoFiltro etiqueta="Buscar" ancho="flexible">
+            <input
+              type="search"
+              value={filtro}
+              onChange={(e) => setFiltro(e.target.value)}
+              placeholder="Concepto, fase, nota, monto…"
+              className={CONTROL_COMPACTO}
+            />
+          </CampoFiltro>
+          <CampoFiltro etiqueta="Mes">
+            <select
+              value={filtroMes}
+              onChange={(e) => setFiltroMes(e.target.value)}
+              className={CONTROL_COMPACTO}
+            >
+              <option value="">Todos</option>
+              {MESES_FY.map((m) => (
+                <option key={m} value={m}>
+                  {nombreMes(m)}
+                </option>
+              ))}
+            </select>
+          </CampoFiltro>
+          <CampoFiltro etiqueta="Hunting Zone">
+            <select
+              value={filtroHz}
+              onChange={(e) => setFiltroHz(e.target.value)}
+              className={CONTROL_COMPACTO}
+            >
+              <option value="">Todas</option>
+              {huntingZones.map((h) => (
+                <option key={h.id} value={h.id}>
+                  {h.nombre}
+                </option>
+              ))}
+            </select>
+          </CampoFiltro>
+        </BarraFiltros>
+
+        {!soloLectura && (
+          <Button type="button" onClick={() => setFormulario("nuevo")} className="gap-1.5">
+            <Plus className="size-4" aria-hidden />
+            Registrar ingreso
+          </Button>
+        )}
       </div>
 
-      <div className="ui-card overflow-x-auto">
-        <table className="ui-table min-w-[60rem] text-sm">
-          <thead>
-            <tr>
-              <th className="w-24">Mes</th>
-              <th>Hunting Zone</th>
-              <th>Concepto</th>
-              <th>Fase</th>
-              <th>Motivo</th>
-              <th>Detalle</th>
-              <th className="r w-32">Monto</th>
-              <th className="w-32" />
-            </tr>
-          </thead>
-          <tbody>
-            {visibles.map((f) => {
-              const enEdicion = editando === f.id;
+      <p className="mb-2 text-xs text-[var(--muted)]">
+        {visibles.length} de {filas.length} {filas.length === 1 ? "registro" : "registros"} ·{" "}
+        <strong className="text-[var(--ink)]">{moneda.format(total)}</strong>
+        {hayFiltros && (
+          <button
+            type="button"
+            onClick={() => {
+              setFiltro("");
+              setFiltroMes("");
+              setFiltroHz("");
+            }}
+            className="ml-3 font-semibold text-[var(--blue)] hover:underline"
+          >
+            Quitar filtros
+          </button>
+        )}
+      </p>
 
-              if (!enEdicion) {
-                return (
+      {filas.length === 0 ? (
+        <div className="ui-card px-4 py-10 text-center text-sm text-[var(--muted)]">
+          <p>Todavía no hay ingresos cargados en este año fiscal.</p>
+          {!soloLectura && (
+            <Button type="button" onClick={() => setFormulario("nuevo")} className="mt-4 gap-1.5">
+              <Plus className="size-4" aria-hidden />
+              Registrar el primero
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="ui-card overflow-x-auto">
+          <table className="ui-table min-w-[60rem] text-sm">
+            <thead>
+              <tr>
+                <th className="w-24">Mes</th>
+                <th>Hunting Zone</th>
+                <th>Concepto</th>
+                <th>Fase</th>
+                <th>Motivo</th>
+                <th>Detalle</th>
+                <th>Nota</th>
+                <th className="r w-32">Monto</th>
+                {!soloLectura && (
+                  <th className="w-20">
+                    <span className="sr-only">Acciones</span>
+                  </th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {visibles.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={soloLectura ? 8 : 9}
+                    className="py-8 text-center text-[var(--muted)]"
+                  >
+                    Ningún ingreso coincide con los filtros.
+                  </td>
+                </tr>
+              ) : (
+                visibles.map((f) => (
                   <tr key={f.id}>
-                    <td className="whitespace-nowrap">{nombreMes(f.mes)}</td>
+                    <td>{nombreMes(f.mes)}</td>
                     <td>{nombreHz.get(f.id_hunting_zone) ?? "—"}</td>
-                    <td className="font-semibold text-[var(--ink)]">{f.concepto}</td>
+                    <td className="whitespace-normal font-semibold text-[var(--ink)]">
+                      {f.concepto}
+                    </td>
                     <td>{f.fase ?? "—"}</td>
                     <td>{f.motivo ?? "—"}</td>
                     <td>{f.detalle ?? "—"}</td>
-                    <td className="r">{moneda.format(f.monto)}</td>
-                    <td className="whitespace-nowrap">
-                      {!soloLectura && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => abrirEdicion(f)}
-                            className="mr-3 font-semibold text-[var(--blue)] hover:underline"
-                          >
-                            Editar
-                          </button>
-                          <button
-                            type="button"
-                            disabled={ocupado === f.id}
-                            onClick={() => setABorrar(f)}
-                            className="text-[var(--bad)] hover:underline disabled:opacity-50"
-                          >
-                            Borrar
-                          </button>
-                        </>
-                      )}
+                    <td className="max-w-[16rem] truncate" title={f.nota ?? undefined}>
+                      {f.nota ?? "—"}
                     </td>
+                    <td
+                      className="r font-semibold"
+                      style={{ color: f.monto < 0 ? "var(--bad)" : "var(--ink)" }}
+                    >
+                      {moneda.format(f.monto)}
+                    </td>
+                    {!soloLectura && (
+                      <td>
+                        <div className="flex justify-end gap-1">
+                          <button
+                            type="button"
+                            aria-label={`Editar ${f.concepto}`}
+                            title="Editar"
+                            onClick={() => setFormulario(f)}
+                            className="rounded-md p-1.5 text-[var(--blue)] hover:bg-[var(--line-soft)]"
+                          >
+                            <Pencil className="size-4" aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Eliminar ${f.concepto}`}
+                            title="Eliminar"
+                            onClick={() => setABorrar(f)}
+                            className="rounded-md p-1.5 text-[var(--bad)] hover:bg-rose-50"
+                          >
+                            <Trash2 className="size-4" aria-hidden />
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
-                );
-              }
-
-              return (
-                <tr key={f.id} className="bg-amber-50">
-                  <td>
-                    <select
-                      aria-label="Mes"
-                      value={campo(f, "mes")}
-                      onChange={(e) => setParche((p) => ({ ...p, mes: Number(e.target.value) }))}
-                      className={CONTROL_CELDA}
-                    >
-                      {MESES_FY.map((m) => (
-                        <option key={m} value={m}>
-                          {nombreMes(m)}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <select
-                      aria-label="Hunting Zone"
-                      value={campo(f, "id_hunting_zone")}
-                      onChange={(e) =>
-                        setParche((p) => ({ ...p, id_hunting_zone: e.target.value }))
-                      }
-                      className={CONTROL_CELDA}
-                    >
-                      {huntingZones.map((h) => (
-                        <option key={h.id} value={h.id}>
-                          {h.nombre}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <CampoSugerido
-                      aria-label="Concepto"
-                      idLista="sug-concepto"
-                      value={campo(f, "concepto")}
-                      onChange={(e) => setParche((p) => ({ ...p, concepto: e.target.value }))}
-                      className={CONTROL_CELDA}
-                    />
-                  </td>
-                  <td>
-                    <CampoSugerido
-                      aria-label="Fase"
-                      idLista="sug-fase"
-                      value={campo(f, "fase") ?? ""}
-                      onChange={(e) => setParche((p) => ({ ...p, fase: e.target.value }))}
-                      className={CONTROL_CELDA}
-                    />
-                  </td>
-                  <td>
-                    <CampoSugerido
-                      aria-label="Motivo"
-                      idLista="sug-motivo"
-                      value={campo(f, "motivo") ?? ""}
-                      onChange={(e) => setParche((p) => ({ ...p, motivo: e.target.value }))}
-                      className={CONTROL_CELDA}
-                    />
-                  </td>
-                  <td>
-                    <CampoSugerido
-                      aria-label="Detalle"
-                      idLista="sug-detalle"
-                      value={campo(f, "detalle") ?? ""}
-                      onChange={(e) => setParche((p) => ({ ...p, detalle: e.target.value }))}
-                      className={CONTROL_CELDA}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      step="0.01"
-                      aria-label="Monto"
-                      value={campo(f, "monto")}
-                      onChange={(e) => setParche((p) => ({ ...p, monto: Number(e.target.value) }))}
-                      className={CONTROL_CELDA}
-                    />
-                  </td>
-                  <td className="whitespace-nowrap">
-                    <button
-                      type="button"
-                      disabled={ocupado === f.id}
-                      onClick={() => void guardar(f.id)}
-                      className="mr-3 font-semibold text-[var(--ok)] hover:underline disabled:opacity-50"
-                    >
-                      {ocupado === f.id ? "Guardando…" : "Guardar"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditando(null);
-                        setParche({});
-                      }}
-                      className="text-[var(--muted)] hover:underline"
-                    >
-                      Cancelar
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

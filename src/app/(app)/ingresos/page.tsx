@@ -1,8 +1,4 @@
-import {
-  FormularioIngreso,
-  type OpcionHz,
-  type SugerenciasIngreso,
-} from "@/components/ingresos/FormularioIngreso";
+import type { OpcionHz, SugerenciasIngreso } from "@/components/ingresos/FormularioIngreso";
 import { TablaIngresos, type FilaIngreso } from "@/components/ingresos/TablaIngresos";
 import { obtenerRol } from "@/lib/auth";
 import { fyActual, fyEtiqueta, MESES_FY, nombreMes } from "@/lib/fiscal";
@@ -103,22 +99,8 @@ export default async function IngresosPage() {
         </div>
       </section>
 
-      {puedeEditar && (
-        <section className="mt-8">
-          <h2 className="ui-section-title">Registrar un ingreso</h2>
-          <div className="mt-3">
-            <FormularioIngreso
-              fy={fy}
-              huntingZones={huntingZones}
-              sugerencias={sugerencias}
-              mesInicial={mesActual}
-            />
-          </div>
-        </section>
-      )}
-
-      <section className="mt-10">
-        <h2 className="ui-section-title">Ingresos del año</h2>
+      <section className="mt-8">
+        <h2 className="ui-section-title">Ingresos registrados</h2>
         <div className="mb-3 mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted)]">
           {MESES_FY.filter((m) => porMes.has(m)).map((m) => (
             <span key={m}>
@@ -128,6 +110,8 @@ export default async function IngresosPage() {
           ))}
         </div>
         <TablaIngresos
+          fy={fy}
+          mesInicial={mesActual}
           filas={filas}
           huntingZones={huntingZones}
           sugerencias={sugerencias}
