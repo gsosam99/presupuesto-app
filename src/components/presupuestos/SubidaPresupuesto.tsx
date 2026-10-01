@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
+import { ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { useCargaArchivo } from "@/hooks/useCargaArchivo";
@@ -21,6 +22,8 @@ export function SubidaPresupuesto() {
   const [previa, setPrevia] = useState<Previa | null>(null);
   const [analizando, setAnalizando] = useState(false);
   const [errorPrevia, setErrorPrevia] = useState<string | null>(null);
+  /** Orden/CeCo desplegado en la vista previa, para auditar sus líneas. */
+  const [abierta, setAbierta] = useState<string | null>(null);
   const { subiendo, resumen, error, subir } =
     useCargaArchivo<ResumenCargaPresupuesto>("/api/presupuestos");
 
@@ -28,6 +31,7 @@ export function SubidaPresupuesto() {
     setArchivo(elegido);
     setPrevia(null);
     setErrorPrevia(null);
+    setAbierta(null);
     setAnalizando(true);
     try {
       const formData = new FormData();
@@ -165,6 +169,9 @@ export function SubidaPresupuesto() {
 
           {previa.porUnidad.length > 0 && (
             <div className="overflow-x-auto rounded-md border border-slate-200">
+              <p className="border-b border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
+                Toca una orden para ver sus líneas una por una. &quot;Fila&quot; es la del Excel.
+              </p>
               <table className="ui-table min-w-[40rem] text-xs">
                 <thead>
                   <tr>
@@ -176,27 +183,85 @@ export function SubidaPresupuesto() {
                   </tr>
                 </thead>
                 <tbody>
-                  {previa.porUnidad.map((u) => (
-                    <tr key={`${u.tipo}:${u.unidad}`}>
-                      <td className="font-mono text-[var(--ink)]">
-                        {u.tipo === "ceco" ? `CeCo ${u.unidad}` : u.unidad}
-                      </td>
-                      <td>{u.nombre ?? "—"}</td>
-                      <td className="r">{u.lineas}</td>
-                      <td className="r">
-                        {u.conMacroactividad === u.lineas ? (
-                          "todas"
-                        ) : (
-                          <span className="font-semibold text-amber-700">
-                            {u.conMacroactividad} de {u.lineas}
-                          </span>
+                  {previa.porUnidad.map((u) => {
+                    const clave = `${u.tipo}:${u.unidad}`;
+                    const desplegada = abierta === clave;
+                    return (
+                      <Fragment key={clave}>
+                        <tr className={desplegada ? "bg-[var(--line-soft)]" : undefined}>
+                          <td className="font-mono text-[var(--ink)]">
+                            <button
+                              type="button"
+                              aria-expanded={desplegada}
+                              onClick={() => setAbierta(desplegada ? null : clave)}
+                              className="inline-flex items-center gap-1 font-semibold text-[var(--blue)] hover:underline"
+                              title="Ver las líneas de esta orden"
+                            >
+                              <ChevronRight
+                                className={`size-3.5 transition-transform ${desplegada ? "rotate-90" : ""}`}
+                                aria-hidden
+                              />
+                              {u.tipo === "ceco" ? `CeCo ${u.unidad}` : u.unidad}
+                            </button>
+                          </td>
+                          <td>{u.nombre ?? "—"}</td>
+                          <td className="r">{u.lineas}</td>
+                          <td className="r">
+                            {u.conMacroactividad === u.lineas ? (
+                              "todas"
+                            ) : (
+                              <span className="font-semibold text-amber-700">
+                                {u.conMacroactividad} de {u.lineas}
+                              </span>
+                            )}
+                          </td>
+                          <td className="r font-semibold text-[var(--ink)]">
+                            {moneda.format(u.monto)}
+                          </td>
+                        </tr>
+                        {desplegada && (
+                          <tr>
+                            <td colSpan={5} className="bg-white p-0">
+                              <div className="max-h-80 overflow-auto border-y border-[var(--line)]">
+                                <table className="ui-table text-[11px]">
+                                  <thead className="sticky top-0 bg-white">
+                                    <tr>
+                                      <th>Fila</th>
+                                      <th>Mes</th>
+                                      <th>Cuenta</th>
+                                      <th>Detalle</th>
+                                      <th>Macroactividad</th>
+                                      <th>Responsable</th>
+                                      <th className="r">Monto</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {u.lineasDetalle.map((l) => (
+                                      <tr key={l.fila}>
+                                        <td className="text-[var(--muted)]">{l.fila}</td>
+                                        <td>{l.periodo}</td>
+                                        <td className="font-mono">{l.cuenta ?? "—"}</td>
+                                        <td className="whitespace-normal">{l.detalle ?? "—"}</td>
+                                        <td className="whitespace-normal">
+                                          {l.macroactividad ?? (
+                                            <span className="font-semibold text-amber-700">
+                                              sin macroactividad
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td>{l.responsable ?? "—"}</td>
+                                        <td className="r">{moneda.format(l.monto)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
                         )}
-                      </td>
-                      <td className="r font-semibold text-[var(--ink)]">
-                        {moneda.format(u.monto)}
-                      </td>
-                    </tr>
-                  ))}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

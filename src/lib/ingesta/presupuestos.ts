@@ -64,6 +64,18 @@ export interface ResumenCargaPresupuesto {
   rechazos: Array<{ fila: number; motivo: string }>;
 }
 
+/** Una línea del archivo en la vista previa, para auditarla antes de cargar. */
+export interface LineaPrevia {
+  fila: number;
+  /** "YYYY-MM" */
+  periodo: string;
+  cuenta: string | null;
+  detalle: string | null;
+  macroactividad: string | null;
+  responsable: string | null;
+  monto: number;
+}
+
 /** Totales de una orden o CeCo en la vista previa. */
 export interface UnidadPrevia {
   unidad: string;
@@ -72,6 +84,7 @@ export interface UnidadPrevia {
   lineas: number;
   monto: number;
   conMacroactividad: number;
+  lineasDetalle: LineaPrevia[];
 }
 
 export interface PreviaPresupuesto {
@@ -155,6 +168,8 @@ function etiquetaFy(fy: number): string {
 interface Analisis {
   /** Sin id_carga todavía: se asigna al escribir. */
   registros: Array<Omit<RegistroPresupuesto, "id_carga">>;
+  /** Fila del Excel y año de cada registro (mismo índice), para la vista previa. */
+  origen: Array<{ fila: number; anio: number }>;
   rechazos: Array<{ fila: number; motivo: string }>;
   filasLeidas: number;
   omitidasEnCero: number;
@@ -224,6 +239,7 @@ async function analizar(
 
   const a: Analisis = {
     registros: [],
+    origen: [],
     rechazos: [],
     filasLeidas: 0,
     omitidasEnCero: 0,
@@ -300,6 +316,7 @@ async function analizar(
 
     const cuenta = repartirCuenta(textoCelda(valor("cuentaA")), textoCelda(valor("cuentaB")));
 
+    a.origen.push({ fila: numero, anio: periodo.anio });
     a.registros.push({
       id_oi: idOi,
       id_ceco: idCeco,
@@ -346,7 +363,7 @@ export async function analizarPresupuestoExcel(
   const a = await analizar(cliente, buffer, opciones.tipo);
 
   const porUnidad = new Map<string, UnidadPrevia>();
-  for (const r of a.registros) {
+  for (const [i, r] of a.registros.entries()) {
     const clave = (r.id_oi ?? r.id_ceco) as string;
     const info = a.nombres.get(clave);
     const u = porUnidad.get(clave) ?? {
@@ -356,8 +373,18 @@ export async function analizarPresupuestoExcel(
       lineas: 0,
       monto: 0,
       conMacroactividad: 0,
+      lineasDetalle: [],
     };
     u.lineas += 1;
+    u.lineasDetalle.push({
+      fila: a.origen[i].fila,
+      periodo: `${a.origen[i].anio}-${String(r.mes).padStart(2, "0")}`,
+      cuenta: r.cuenta_contable,
+      detalle: r.detalle_gasto,
+      macroactividad: r.macroactividad,
+      responsable: r.responsable,
+      monto: r.monto,
+    });
     u.monto += r.monto;
     if (r.macroactividad) u.conMacroactividad += 1;
     porUnidad.set(clave, u);
