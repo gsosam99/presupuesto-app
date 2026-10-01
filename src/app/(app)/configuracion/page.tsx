@@ -1,8 +1,10 @@
 import { PanelMaestras, type SeccionMaestra } from "@/components/maestras/PanelMaestras";
 import type { CampoMaestra, FilaMaestra } from "@/components/maestras/TablaMaestra";
 import { requireRol } from "@/lib/auth";
+import { obtenerAccesos } from "@/lib/equipo/accesos";
 import { fyEtiqueta } from "@/lib/fiscal";
 import { ETIQUETA_ROL, tienePermiso } from "@/lib/permisos";
+import type { AccesoMiembro } from "@/types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Configuración — IENN Gastos App" };
@@ -29,6 +31,30 @@ export default async function ConfiguracionPage() {
     supabase.from("anios_fiscales").select("id, fy, activo").order("fy", { ascending: false }),
     supabase.from("miembros_equipo").select("id, nombre, correo, rol, activo").order("nombre"),
   ]);
+
+  // Estado de cada cuenta en Supabase Auth: solo lo ve quien administra el
+  // equipo (usa la clave secreta). Si falla, la tabla sigue funcionando.
+  const filasEquipo = (equipo.data ?? []) as Array<{ id: string; correo: string | null }>;
+  let accesosEquipo: Record<string, AccesoMiembro> | undefined;
+  let errorAccesos: string | null = null;
+  if (puedeEquipo) {
+    try {
+      const porCorreo = await obtenerAccesos(
+        filasEquipo.flatMap((m) => (m.correo ? [m.correo] : [])),
+      );
+      accesosEquipo = Object.fromEntries(
+        filasEquipo.flatMap((m) =>
+          m.correo && porCorreo[m.correo.toLowerCase()]
+            ? [[m.id, porCorreo[m.correo.toLowerCase()]]]
+            : [],
+        ),
+      );
+    } catch (e) {
+      console.error("[configuracion] accesos", e);
+      errorAccesos =
+        "No se pudo consultar Supabase Auth: revisa SUPABASE_SERVICE_ROLE_KEY. Las invitaciones no van a funcionar.";
+    }
+  }
 
   const opcionesCeco = ((cecos.data ?? []) as Array<{ id: string; codigo_sap: string }>).map(
     (c) => ({ valor: c.id, etiqueta: c.codigo_sap }),
@@ -122,11 +148,14 @@ export default async function ConfiguracionPage() {
       filas: (equipo.data ?? []) as unknown as FilaMaestra[],
       etiquetaAlta: "Nuevo miembro",
       soloLectura: !puedeEquipo,
+      accesos: accesosEquipo,
       descripcion: (
         <>
-          Encargados de facturas y usuarios de la app. El <strong>rol</strong> se aplica a
-          quien inicie sesión con ese mismo correo; sin rol, la persona puede ser
-          encargada de facturas pero no entra a la app. <strong>Administrador</strong>:
+          Encargados de facturas y usuarios de la app. Al crear un miembro{" "}
+          <strong>con rol</strong> se le envía por correo una invitación para elegir su
+          contraseña; desde la columna <strong>Acceso</strong> se reenvía o se copia el enlace
+          para mandarlo por otro medio. Sin rol, la persona puede ser encargada de facturas
+          pero no entra a la app. <strong>Administrador</strong>:
           todo, incluido este equipo y las maestras. <strong>Finanzas</strong>: cargas
           de SAP y presupuesto, aprueba solicitudes, ingresos. <strong>Analista</strong>:
           facturas, triaje y crear solicitudes. <strong>Lector</strong>: solo consulta.
@@ -204,6 +233,12 @@ export default async function ConfiguracionPage() {
           pertenece a una sola Hunting Zone. Los cambios se guardan fila por fila.
         </p>
       </header>
+
+      {errorAccesos && (
+        <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {errorAccesos}
+        </p>
+      )}
 
       {errorCarga && (
         <p className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">

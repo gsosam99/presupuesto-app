@@ -36,3 +36,12 @@ export function supabaseAnonKey(): string {
     "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   );
 }
+
+/**
+ * Clave secreta (service_role / sb_secret_). SOLO servidor: bypassea RLS y
+ * habilita la API de administración de Auth (invitar usuarios). Sin prefijo
+ * NEXT_PUBLIC_, así que en el browser es `undefined` y esto lanza.
+ */
+export function supabaseServiceRoleKey(): string {
+  return requerida(process.env.SUPABASE_SERVICE_ROLE_KEY, "SUPABASE_SERVICE_ROLE_KEY");
+}

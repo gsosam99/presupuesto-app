@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { requireApiPermiso } from "@/lib/auth";
+import { invitar } from "@/lib/equipo/accesos";
 import type { Permiso } from "@/lib/permisos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -91,9 +92,10 @@ export async function POST(
       return Response.json({ error: "Datos inválidos" }, { status: 400 });
     }
 
+    const registro = limpiar(parsed.data, config.campos);
     const { data, error } = await supabase
       .from(config.tabla)
-      .insert(limpiar(parsed.data, config.campos))
+      .insert(registro)
       .select("id")
       .single();
 
@@ -101,7 +103,29 @@ export async function POST(
       console.error("[POST /api/maestras]", error);
       return Response.json({ error: "No se pudo crear el registro." }, { status: 400 });
     }
-    return Response.json({ id: data?.id }, { status: 201 });
+
+    // Un miembro nuevo con rol es un usuario nuevo: se le crea la cuenta en
+    // Supabase Auth y le llega la invitación. Si falla, el miembro queda
+    // creado igual y se reintenta desde la columna "Acceso".
+    let invitacion: string | null = null;
+    if (
+      entidad === "miembros-equipo" &&
+      registro.rol &&
+      registro.activo !== false &&
+      typeof registro.correo === "string"
+    ) {
+      try {
+        const resultado = await invitar(registro.correo, new URL(request.url).origin);
+        invitacion = resultado.ok
+          ? `Invitación enviada a ${registro.correo}.`
+          : `El miembro se creó, pero la invitación falló: ${resultado.error}`;
+      } catch (e) {
+        console.error("[POST /api/maestras] invitación", e);
+        invitacion = "El miembro se creó, pero no se pudo enviar la invitación.";
+      }
+    }
+
+    return Response.json({ id: data?.id, invitacion }, { status: 201 });
   } catch (error) {
     console.error("[POST /api/maestras]", error);
     return Response.json({ error: "Error interno" }, { status: 500 });

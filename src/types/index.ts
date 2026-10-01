@@ -39,6 +39,15 @@ export type EstadoCarga = "procesando" | "completada" | "fallida";
 /** Rol de un usuario de la app. Ver la matriz de permisos en src/lib/permisos.ts. */
 export type RolApp = "admin" | "finanzas" | "analista" | "lector";
 
+/** Estado de la cuenta de Supabase Auth de un miembro del equipo. */
+export type EstadoAcceso = "activo" | "invitado" | "sin_cuenta";
+
+export interface AccesoMiembro {
+  estado: EstadoAcceso;
+  ultimoIngreso: string | null;
+  invitadoEl: string | null;
+}
+
 /** Cómo se asoció un gasto con su factura pre-registrada. */
 export type MetodoCruce = "automatico" | "manual";
 

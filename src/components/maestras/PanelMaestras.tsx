@@ -7,6 +7,7 @@ import {
   type CampoMaestra,
   type FilaMaestra,
 } from "@/components/maestras/TablaMaestra";
+import type { AccesoMiembro } from "@/types";
 
 export interface SeccionMaestra {
   /** Clave estable, se usa para los ids de accesibilidad. */
@@ -19,6 +20,8 @@ export interface SeccionMaestra {
   etiquetaAlta: string;
   /** El rol de la sesión no puede editar esta maestra. */
   soloLectura?: boolean;
+  /** Solo Equipo: estado de la cuenta de Auth por id de fila. */
+  accesos?: Record<string, AccesoMiembro>;
 }
 
 interface Props {
@@ -109,6 +112,7 @@ export function PanelMaestras({ secciones }: Props) {
           filas={seccion.filas}
           etiquetaAlta={seccion.etiquetaAlta}
           soloLectura={seccion.soloLectura}
+          accesos={seccion.accesos}
         />
       </div>
     </div>
