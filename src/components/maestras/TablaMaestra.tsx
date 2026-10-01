@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Copy, Mail, Plus, Save } from "lucide-react";
 
 import { useAvisos } from "@/components/ui/Avisos";
 import { Button } from "@/components/ui/Button";
 import { CONTROL_CELDA, CONTROL_COMPACTO } from "@/components/ui/estilos";
 import { Toggle } from "@/components/ui/Toggle";
+import type { AccesoMiembro } from "@/types";
 
 export type TipoCampo = "texto" | "numero" | "fecha" | "booleano" | "select";
 
@@ -34,6 +36,21 @@ interface Props {
   etiquetaAlta: string;
   /** El rol no puede editar esta maestra: se muestra sin controles ni alta. */
   soloLectura?: boolean;
+  /**
+   * Solo Equipo: estado de la cuenta de Supabase Auth de cada fila (por id).
+   * Agrega la columna "Acceso" con invitar / reenviar / copiar enlace.
+   */
+  accesos?: Record<string, AccesoMiembro>;
+}
+
+const ETIQUETA_ACCESO: Record<AccesoMiembro["estado"], { texto: string; clase: string }> = {
+  activo: { texto: "Activo", clase: "bg-[rgba(30,138,138,0.12)] text-[var(--ok)]" },
+  invitado: { texto: "Invitación pendiente", clase: "bg-amber-100 text-amber-800" },
+  sin_cuenta: { texto: "Sin cuenta", clase: "bg-[var(--line-soft)] text-[var(--muted)]" },
+};
+
+function fechaCorta(iso: string | null): string {
+  return iso ? new Date(iso).toLocaleDateString("es-VE", { dateStyle: "medium" }) : "";
 }
 
 const CELDA = CONTROL_CELDA;
@@ -101,12 +118,14 @@ export function TablaMaestra({
   filas,
   etiquetaAlta,
   soloLectura = false,
+  accesos,
 }: Props) {
   const router = useRouter();
 
   const [edicion, setEdicion] = useState<Record<string, FilaMaestra>>({});
   const [nueva, setNueva] = useState<Record<string, string | boolean> | null>(null);
   const [guardando, setGuardando] = useState<string | null>(null);
+  const [invitando, setInvitando] = useState<string | null>(null);
   const avisos = useAvisos();
 
   // El servidor ya ordena cada entidad con criterio (codigo_oi, orden_display,
@@ -177,15 +196,16 @@ export function TablaMaestra({
     }));
   }
 
-  async function guardar(id: string) {
+  /** Guarda una fila. `enLote`: sin aviso de éxito ni refresh (los hace guardarTodas). */
+  async function guardar(id: string, enLote = false): Promise<boolean> {
     const cambios = edicion[id];
-    if (!cambios) return;
+    if (!cambios) return true;
 
     const fila = filas.find((f) => f.id === id);
     const faltan = faltantes({ ...fila, ...cambios });
     if (faltan.length > 0) {
       avisos.error(`Completa: ${faltan.map((f) => f.etiqueta).join(", ")}`);
-      return;
+      return false;
     }
 
     setGuardando(id);
@@ -199,19 +219,67 @@ export function TablaMaestra({
       const json = (await res.json()) as { error?: string };
       if (!res.ok) {
         avisos.error(json.error ?? "No se pudo guardar.");
-        return;
+        return false;
       }
       setEdicion((prev) => {
         const copia = { ...prev };
         delete copia[id];
         return copia;
       });
-      avisos.exito("Cambios guardados.");
+      if (!enLote) {
+        avisos.exito("Cambios guardados.");
+        router.refresh();
+      }
+      return true;
+    } catch {
+      avisos.error("No se pudo conectar con el servidor.");
+      return false;
+    } finally {
+      setGuardando(null);
+    }
+  }
+
+  /** Guarda todas las filas modificadas, una por una; se detiene en la primera que falla. */
+  async function guardarTodas() {
+    let guardadas = 0;
+    for (const id of sucias) {
+      if (!(await guardar(id, true))) break;
+      guardadas += 1;
+    }
+    if (guardadas > 0) {
+      avisos.exito(guardadas === 1 ? "1 fila guardada." : `${guardadas} filas guardadas.`);
+      router.refresh();
+    }
+  }
+
+  async function invitar(id: string, soloEnlace: boolean) {
+    setInvitando(id);
+    try {
+      const res = await fetch("/api/equipo/invitar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, soloEnlace }),
+      });
+      const json = (await res.json()) as { enlace?: string | null; error?: string };
+      if (!res.ok) {
+        avisos.error(json.error ?? "No se pudo invitar.");
+        return;
+      }
+      if (soloEnlace && json.enlace) {
+        try {
+          await navigator.clipboard.writeText(json.enlace);
+          avisos.exito("Enlace copiado. Envíalo por el medio que prefieras: vence en 24 horas.");
+        } catch {
+          avisos.error("No se pudo copiar al portapapeles.");
+        }
+      } else {
+        avisos.exito("Invitación enviada por correo.");
+      }
       router.refresh();
     } catch {
       avisos.error("No se pudo conectar con el servidor.");
     } finally {
-      setGuardando(null);
+      setInvitando(null);
     }
   }
 
@@ -232,13 +300,17 @@ export function TablaMaestra({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(nueva),
       });
-      const json = (await res.json()) as { error?: string };
+      const json = (await res.json()) as { error?: string; invitacion?: string | null };
       if (!res.ok) {
         avisos.error(json.error ?? "No se pudo crear.");
         return;
       }
       setNueva(null);
-      avisos.exito("Registro creado.");
+      if (json.invitacion && json.invitacion.includes("falló")) {
+        avisos.error(json.invitacion);
+      } else {
+        avisos.exito(json.invitacion ? `Registro creado. ${json.invitacion}` : "Registro creado.");
+      }
       // La fila nueva cae donde la ponga el orden del servidor; la página 0 es
       // el lugar menos sorprendente para quedar parado.
       setPagina(0);
@@ -313,9 +385,91 @@ export function TablaMaestra({
     );
   }
 
+  const conAcceso = accesos !== undefined;
+  const columnas = campos.length + 1 + (conAcceso ? 1 : 0);
+
+  function celdaAcceso(fila: FilaMaestra) {
+    const acceso = accesos?.[fila.id];
+    if (!fila.rol || !fila.activo) {
+      return (
+        <span className="text-[var(--muted)]">
+          {fila.activo ? "Sin rol: no entra a la app" : "Inactivo"}
+        </span>
+      );
+    }
+    if (!acceso) return <span className="text-[var(--muted)]">—</span>;
+
+    const etiqueta = ETIQUETA_ACCESO[acceso.estado];
+    const ocupado = invitando === fila.id;
+    return (
+      <div className="flex flex-col items-start gap-1">
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${etiqueta.clase}`}>
+          {etiqueta.texto}
+        </span>
+        {acceso.estado === "activo" && acceso.ultimoIngreso && (
+          <span className="text-[10px] text-[var(--muted)]">
+            Último ingreso: {fechaCorta(acceso.ultimoIngreso)}
+          </span>
+        )}
+        {acceso.estado === "invitado" && acceso.invitadoEl && (
+          <span className="text-[10px] text-[var(--muted)]">
+            Invitado el {fechaCorta(acceso.invitadoEl)}
+          </span>
+        )}
+        {acceso.estado !== "activo" && !soloLectura && (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={ocupado || Boolean(edicion[fila.id])}
+              title={edicion[fila.id] ? "Guarda los cambios de la fila primero" : undefined}
+              onClick={() => void invitar(fila.id, false)}
+              className="inline-flex items-center gap-1 font-semibold text-[var(--blue)] hover:underline disabled:opacity-40"
+            >
+              <Mail className="size-3" aria-hidden />
+              {acceso.estado === "invitado" ? "Reenviar" : "Invitar"}
+            </button>
+            <button
+              type="button"
+              disabled={ocupado || Boolean(edicion[fila.id])}
+              onClick={() => void invitar(fila.id, true)}
+              className="inline-flex items-center gap-1 font-semibold text-[var(--ink-soft)] hover:underline disabled:opacity-40"
+            >
+              <Copy className="size-3" aria-hidden />
+              Copiar enlace
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div>
+      {/* Acciones arriba: con tablas largas, abajo obligaban a bajar hasta el final. */}
       <div className="mb-3 flex flex-wrap items-center gap-3">
+        {!soloLectura && (
+          <Button
+            type="button"
+            onClick={abrirAlta}
+            disabled={nueva !== null}
+            className="gap-1.5 px-3 py-1.5"
+          >
+            <Plus className="size-4" aria-hidden />
+            {etiquetaAlta}
+          </Button>
+        )}
+        {!soloLectura && sucias.length > 0 && (
+          <Button
+            type="button"
+            variante="secundario"
+            cargando={guardando !== null}
+            onClick={() => void guardarTodas()}
+            className="px-3 py-1.5"
+          >
+            {guardando === null && <Save className="size-4" aria-hidden />}
+            Guardar {sucias.length === 1 ? "1 cambio" : `${sucias.length} cambios`}
+          </Button>
+        )}
         <input
           type="search"
           value={filtro}
@@ -350,13 +504,16 @@ export function TablaMaestra({
       </div>
 
       <div className="ui-card overflow-x-auto">
-        <table className="ui-table text-xs" style={{ minWidth: `${campos.length * 9}rem` }}>
+        <table className="ui-table text-xs" style={{ minWidth: `${columnas * 9}rem` }}>
           <thead>
             <tr>
               {campos.map((c) => (
                 <Th key={c.clave} campo={c} orden={orden} onOrdenar={ordenarPor} />
               ))}
-              <th className="w-24" />
+              {conAcceso && <th className="w-48">Acceso</th>}
+              <th className="w-24">
+                <span className="sr-only">Acciones</span>
+              </th>
             </tr>
           </thead>
 
@@ -374,6 +531,11 @@ export function TablaMaestra({
                         )}
                   </td>
                 ))}
+                {conAcceso && (
+                  <td className="whitespace-normal text-[11px] text-[var(--muted)]">
+                    Con rol, se le envía la invitación al crear.
+                  </td>
+                )}
                 <td className="whitespace-nowrap">
                   <button
                     type="button"
@@ -416,6 +578,7 @@ export function TablaMaestra({
                       </td>
                     );
                   })}
+                  {conAcceso && <td className="text-xs">{celdaAcceso(fila)}</td>}
                   <td className="whitespace-nowrap">
                     {modificada && (
                       <button
@@ -434,7 +597,7 @@ export function TablaMaestra({
 
             {enPagina.length === 0 && (
               <tr>
-                <td colSpan={campos.length + 1} className="text-center text-[var(--muted)]">
+                <td colSpan={columnas} className="text-center text-[var(--muted)]">
                   {filtro ? "Ningún registro coincide con la búsqueda." : "No hay registros."}
                 </td>
               </tr>
@@ -490,11 +653,6 @@ export function TablaMaestra({
         </div>
       )}
 
-      {!nueva && !soloLectura && (
-        <Button type="button" variante="secundario" className="mt-3" onClick={abrirAlta}>
-          {etiquetaAlta}
-        </Button>
-      )}
     </div>
   );
 }
