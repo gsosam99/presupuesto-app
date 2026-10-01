@@ -48,6 +48,15 @@ export interface AccesoMiembro {
   invitadoEl: string | null;
 }
 
+/**
+ * Macroactividad del Plan sugerida como Motivo. `idsOi`: órdenes que la tienen
+ * planificada, para ponerla primero cuando el gasto es de una de ellas.
+ */
+export interface MotivoPlan {
+  valor: string;
+  idsOi: string[];
+}
+
 /** Cómo se asoció un gasto con su factura pre-registrada. */
 export type MetodoCruce = "automatico" | "manual";
 

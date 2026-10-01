@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { requireApiPermiso } from "@/lib/auth";
-import { importarPresupuestoExcel } from "@/lib/ingesta/presupuestos";
+import { analizarPresupuestoExcel, importarPresupuestoExcel } from "@/lib/ingesta/presupuestos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { TipoPresupuesto } from "@/types";
 
@@ -20,6 +20,8 @@ export async function POST(request: Request): Promise<Response> {
     const archivo = formData.get("archivo");
     const tipoCrudo = String(formData.get("tipo") ?? "");
     const forzar = formData.get("forzar") === "true";
+    // Vista previa: analiza y devuelve totales sin escribir nada.
+    const previsualizar = formData.get("modo") === "previsualizar";
 
     if (!(archivo instanceof File)) {
       return Response.json({ error: "No se recibió ningún archivo" }, { status: 400 });
@@ -37,6 +39,22 @@ export async function POST(request: Request): Promise<Response> {
     const tipo: TipoPresupuesto = tipoCrudo;
     const buffer = Buffer.from(await archivo.arrayBuffer());
     const hash = createHash("sha256").update(buffer).digest("hex");
+
+    if (previsualizar) {
+      const [previa, anterior] = await Promise.all([
+        analizarPresupuestoExcel(supabase, buffer, { nombreArchivo: archivo.name, tipo }),
+        supabase
+          .from("cargas")
+          .select("created_at")
+          .eq("hash_archivo", hash)
+          .eq("estado", "completada")
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      return Response.json({
+        previa: { ...previa, yaCargadoEl: (anterior.data?.created_at as string | undefined) ?? null },
+      });
+    }
 
     // Verificación de duplicados: el mismo archivo no se reprocesa salvo que
     // el usuario lo pida explícitamente. Sin esto, volver a subir el Plan

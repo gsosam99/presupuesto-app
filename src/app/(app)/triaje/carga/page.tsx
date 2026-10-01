@@ -1,6 +1,7 @@
 import { AsistenteCarga } from "@/components/triaje/asistente/AsistenteCarga";
 import { PestanasTriaje } from "@/components/triaje/PestanasTriaje";
 import { requireRol } from "@/lib/auth";
+import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { obtenerCatalogosTriaje } from "@/lib/triaje/catalogos";
 import { obtenerFacturasSinCruzar } from "@/lib/triaje/lote";
@@ -14,9 +15,10 @@ export default async function NuevaCargaPage() {
   // Lo que los pasos 4 (match manual) y 5 (rezagadas) necesitan: el asistente
   // corre en memoria hasta confirmar, así que se trae de una vez.
   const supabase = await createSupabaseServerClient();
+  const fy = await obtenerFySeleccionado();
   const [facturas, catalogos] = await Promise.all([
     obtenerFacturasSinCruzar(supabase),
-    obtenerCatalogosTriaje(supabase),
+    obtenerCatalogosTriaje(supabase, fy),
   ]);
   const errorCarga = facturas.error ?? catalogos.error;
 

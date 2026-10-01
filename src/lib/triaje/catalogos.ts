@@ -9,6 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OpcionAsignacion, Sugerencias } from "@/components/triaje/TablaTriaje";
 import { obtenerOrdenesInternasActivas } from "@/lib/presupuesto/ordenesInternas";
 import { etiquetaVigencia, vigenteEnFecha } from "@/lib/presupuesto/vigencia";
+import { obtenerSugerenciasMotivo } from "@/lib/taxonomia/motivos";
 import type { Database } from "@/types/supabase";
 
 export interface CatalogosTriaje {
@@ -20,8 +21,10 @@ export interface CatalogosTriaje {
 
 export async function obtenerCatalogosTriaje(
   supabase: SupabaseClient<Database>,
+  /** Año fiscal de las sugerencias de Motivo (macroactividades del Plan + usados). */
+  fy: number,
 ): Promise<CatalogosTriaje> {
-  const [ois, tags, hzs, valores, equipo] = await Promise.all([
+  const [ois, tags, hzs, valores, equipo, motivos] = await Promise.all([
     obtenerOrdenesInternasActivas(supabase),
     supabase
       .from("hunting_zone_tags")
@@ -31,6 +34,7 @@ export async function obtenerCatalogosTriaje(
     supabase.from("hunting_zones").select("id, nombre"),
     supabase.from("v_valores_taxonomia").select("campo, valor").order("usos", { ascending: false }),
     supabase.from("miembros_equipo").select("id, nombre").eq("activo", true).order("nombre"),
+    obtenerSugerenciasMotivo(supabase, fy),
   ]);
 
   const hzPorId = new Map((hzs.data ?? []).map((h) => [h.id as string, h.nombre as string]));
@@ -76,10 +80,11 @@ export async function obtenerCatalogosTriaje(
     asignaciones: [...porValor.values()],
     sugerencias: {
       fase: filasValores.filter((v) => v.campo === "fase").map((v) => v.valor),
-      motivo: filasValores.filter((v) => v.campo === "motivo").map((v) => v.valor),
+      motivo: motivos.motivo,
+      motivosPlan: motivos.motivosPlan,
       detalle: filasValores.filter((v) => v.campo === "detalle").map((v) => v.valor),
     },
     encargados: (equipo.data ?? []).map((m) => ({ id: m.id, etiqueta: m.nombre })),
-    error: error?.message ?? null,
+    error: error?.message ?? motivos.error,
   };
 }

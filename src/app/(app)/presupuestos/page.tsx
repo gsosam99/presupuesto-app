@@ -53,10 +53,11 @@ export default async function PresupuestosPage() {
       <header>
         <h1 className="text-2xl font-semibold text-slate-900">Presupuestos</h1>
         <p className="mt-2 max-w-3xl text-sm text-slate-600">
-          Carga el Plan base y los Extra Plan. Cada línea apunta a una Orden Interna, y el
-          sistema deduce solo a qué Centro de Costo y Hunting Zone pertenece cruzando
-          contra la maestra. Si una OI del archivo no existe, esa línea se rechaza con el
-          motivo en vez de cargarse a ciegas.
+          Carga el Plan base y los Extra Plan. Cada línea apunta a una Orden Interna (o a un
+          Centro de Costo, si se presupuesta sin orden) y el sistema deduce el resto cruzando
+          contra las maestras. Si el archivo trae la columna <strong>Macroactividad</strong>,
+          se usa para sugerir el Motivo al clasificar los gastos de ese año fiscal. Antes de
+          registrar nada se muestra una vista previa con los totales por orden.
         </p>
       </header>
 

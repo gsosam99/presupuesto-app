@@ -36,7 +36,7 @@ export default async function TriajePage() {
       .select("monto_real", { count: "exact" })
       .eq("estado_revision", "pendiente")
       .eq("fy", fy),
-    obtenerCatalogosTriaje(supabase),
+    obtenerCatalogosTriaje(supabase, fy),
   ]);
 
   const gastos = (pendientes.data ?? []) as unknown as GastoPendiente[];

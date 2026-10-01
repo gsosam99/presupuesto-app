@@ -21,6 +21,7 @@ import {
 } from "@/lib/presupuesto/preregistrado";
 import { obtenerOrdenesInternasActivas } from "@/lib/presupuesto/ordenesInternas";
 import { etiquetaVigencia, vigenteEnFy } from "@/lib/presupuesto/vigencia";
+import { obtenerSugerenciasMotivo } from "@/lib/taxonomia/motivos";
 import type { Database } from "@/types/supabase";
 
 export interface OpcionesFormularioFactura {
@@ -62,7 +63,7 @@ export async function obtenerOpcionesFormulario(
       }),
   );
 
-  const [ois, hzs, cecosRes, tax, equipo, preregistrado, fechaDatosSap] = await Promise.all([
+  const [ois, hzs, cecosRes, tax, equipo, preregistrado, fechaDatosSap, motivos] = await Promise.all([
     obtenerOrdenesInternasActivas(supabase),
     supabase.from("hunting_zones").select("id, nombre").eq("activo", true).order("orden_display"),
     supabase.from("cecos").select("id, codigo_sap, nombre").eq("activo", true).order("codigo_sap"),
@@ -70,6 +71,7 @@ export async function obtenerOpcionesFormulario(
     supabase.from("miembros_equipo").select("id, nombre").eq("activo", true).order("nombre"),
     obtenerPreregistrado(supabase, fy),
     obtenerFechaDatosSap(supabase),
+    obtenerSugerenciasMotivo(supabase, fy),
   ]);
 
   const hzPorId = new Map((hzs.data ?? []).map((h) => [h.id as string, h.nombre as string]));
@@ -104,7 +106,9 @@ export async function obtenerOpcionesFormulario(
   const valores = (tax.data ?? []) as unknown as Array<{ campo: string; valor: string }>;
   const sugerencias: Sugerencias = {
     fase: valores.filter((v) => v.campo === "fase").map((v) => v.valor),
-    motivo: valores.filter((v) => v.campo === "motivo").map((v) => v.valor),
+    // Motivo: Plan del año fiscal primero, luego lo usado en ese año.
+    motivo: motivos.motivo,
+    motivosPlan: motivos.motivosPlan,
     detalle: valores.filter((v) => v.campo === "detalle").map((v) => v.valor),
   };
 
@@ -116,6 +120,6 @@ export async function obtenerOpcionesFormulario(
     encargados: (equipo.data ?? []).map((m) => ({ id: m.id, etiqueta: m.nombre })),
     sugerencias,
     fechaDatosSap,
-    error: error?.message ?? preregistrado.error,
+    error: error?.message ?? preregistrado.error ?? motivos.error,
   };
 }

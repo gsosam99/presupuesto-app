@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState, type KeyboardEvent } from "reac
 import { useRouter } from "next/navigation";
 
 import { useAvisos } from "@/components/ui/Avisos";
+import type { MotivoPlan } from "@/types";
 import { CampoSugerido, ListaSugerencias } from "@/components/ui/CampoSugerido";
 import { CONTROL_CELDA } from "@/components/ui/estilos";
 import { moneda } from "@/lib/format";
@@ -38,6 +39,13 @@ export interface Sugerencias {
   fase: string[];
   motivo: string[];
   detalle: string[];
+  /** Macroactividades del Plan del año fiscal (ya incluidas, primero, en `motivo`). */
+  motivosPlan?: MotivoPlan[];
+}
+
+/** "Plan" junto a cada macroactividad planificada en el desplegable de Motivo. */
+export function etiquetasPlan(motivosPlan: MotivoPlan[] | undefined): Record<string, string> {
+  return Object.fromEntries((motivosPlan ?? []).map((m) => [m.valor, "Plan"]));
 }
 
 interface Props {
@@ -430,7 +438,11 @@ export function TablaTriaje({
         ))}
       </datalist>
       <ListaSugerencias id="sugerencias-fase" sugerencias={sugerencias.fase} />
-      <ListaSugerencias id="sugerencias-motivo" sugerencias={sugerencias.motivo} />
+      <ListaSugerencias
+        id="sugerencias-motivo"
+        sugerencias={sugerencias.motivo}
+        etiquetas={etiquetasPlan(sugerencias.motivosPlan)}
+      />
       <ListaSugerencias id="sugerencias-detalle" sugerencias={sugerencias.detalle} />
 
       <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200 bg-white">

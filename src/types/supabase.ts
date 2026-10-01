@@ -204,6 +204,7 @@ interface PresupuestosRow {
   updated_at: string;
   id_ceco: string | null;
   id_solicitud: string | null;
+  macroactividad: string | null;
 }
 interface PresupuestosInsert {
   id?: string;
@@ -225,6 +226,7 @@ interface PresupuestosInsert {
   updated_at?: string;
   id_ceco?: string | null;
   id_solicitud?: string | null;
+  macroactividad?: string | null;
 }
 
 interface SolicitudesRow {

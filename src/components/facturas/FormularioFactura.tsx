@@ -9,6 +9,8 @@ import { CampoSugerido } from "@/components/ui/CampoSugerido";
 import { AYUDA, CONTROL, ETIQUETA } from "@/components/ui/estilos";
 import { etiquetaTrimestre, trimestreDeMes } from "@/lib/fiscal";
 import { moneda as formatoMoneda } from "@/lib/format";
+import { motivosParaOrden } from "@/lib/taxonomia/motivos";
+import type { MotivoPlan } from "@/types";
 
 export interface OpcionOi {
   id: string;
@@ -43,6 +45,8 @@ export interface Sugerencias {
   fase: string[];
   motivo: string[];
   detalle: string[];
+  /** Macroactividades del Plan del año fiscal (ya incluidas, primero, en `motivo`). */
+  motivosPlan?: MotivoPlan[];
 }
 
 export interface OpcionCeco {
@@ -125,6 +129,11 @@ export function FormularioFactura({
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [idOi, setIdOi] = useState(inicial?.id_oi ?? "");
+  // Lo planificado en la orden elegida sube al principio de las sugerencias.
+  const motivos = useMemo(
+    () => motivosParaOrden(sugerencias.motivo, sugerencias.motivosPlan ?? [], idOi || null),
+    [sugerencias.motivo, sugerencias.motivosPlan, idOi],
+  );
   const [idCecoManual, setIdCecoManual] = useState(inicial?.id_ceco ?? "");
   const [fecha, setFecha] = useState(inicial?.fecha_factura ?? "");
   const [montoTexto, setMontoTexto] = useState(
@@ -527,7 +536,8 @@ export function FormularioFactura({
             id="motivo"
             name="motivo"
             defaultValue={inicial?.motivo ?? ""}
-            sugerencias={sugerencias.motivo}
+            sugerencias={motivos.valores}
+            etiquetas={motivos.etiquetas}
             className={`mt-1 ${CONTROL}`}
           />
         </div>

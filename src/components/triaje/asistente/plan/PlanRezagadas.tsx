@@ -4,7 +4,11 @@ import { useMemo, useState } from "react";
 
 import { CampoSugerido, ListaSugerencias } from "@/components/ui/CampoSugerido";
 import { CONTROL_CELDA } from "@/components/ui/estilos";
-import type { OpcionAsignacion, Sugerencias } from "@/components/triaje/TablaTriaje";
+import {
+  etiquetasPlan,
+  type OpcionAsignacion,
+  type Sugerencias,
+} from "@/components/triaje/TablaTriaje";
 import { moneda } from "@/lib/format";
 
 import {
@@ -114,7 +118,11 @@ export function PlanRezagadas({
         ))}
       </datalist>
       <ListaSugerencias id="plan-fase" sugerencias={sugerencias.fase} />
-      <ListaSugerencias id="plan-motivo" sugerencias={sugerencias.motivo} />
+      <ListaSugerencias
+        id="plan-motivo"
+        sugerencias={sugerencias.motivo}
+        etiquetas={etiquetasPlan(sugerencias.motivosPlan)}
+      />
       <ListaSugerencias id="plan-detalle" sugerencias={sugerencias.detalle} />
 
       <p className="text-sm text-[var(--ink-soft)]">

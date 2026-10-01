@@ -4,14 +4,19 @@
  * El tipo (plan / extra_plan) NO viene en el archivo: lo elige el usuario al
  * subirlo, porque los formatos reales no traen una columna que los distinga.
  *
- * Cada línea apunta a una Orden Interna; el backend la resuelve contra la
- * maestra para deducir CeCo y Hunting Zone (PRD §4, Flujo B, paso 3). Si la OI
- * no existe, la fila se rechaza con el motivo — nunca se inventa la maestra.
+ * Cada línea apunta a una Orden Interna, o a un Centro de Costo cuando el
+ * área se presupuesta directo al CeCo (sin orden). El backend las resuelve
+ * contra las maestras; si no existen, la fila se rechaza con el motivo —
+ * nunca se inventa la maestra. Las líneas con monto 0 se omiten.
  *
  * Columnas de los formatos estándar (se matchean sin acentos ni mayúsculas):
  *   Q | Mes | Centro de Costo | Área | Nueva Orden | Cta / Numero de Cuenta |
  *   Cuenta Contable / Descripción de cuenta | Tipo de Gasto |
- *   Detalle del Gasto | $Presupuesto | Responsable
+ *   Detalle del Gasto | $Presupuesto | Responsable | Macroactividad (opcional)
+ *
+ * Flujo en dos pasos: analizarPresupuestoExcel() no escribe nada (vista
+ * previa con totales por orden/CeCo para cuadrar contra el Excel) e
+ * importarPresupuestoExcel() escribe lo mismo que se previsualizó.
  */
 
 import ExcelJS from "exceljs";
@@ -27,7 +32,9 @@ type Cliente = SupabaseClient<Database>;
 const LOTE = 500;
 
 interface RegistroPresupuesto {
-  id_oi: string;
+  id_oi: string | null;
+  id_ceco: string | null;
+  macroactividad: string | null;
   tipo: TipoPresupuesto;
   fy: number;
   mes: number;
@@ -57,6 +64,30 @@ export interface ResumenCargaPresupuesto {
   rechazos: Array<{ fila: number; motivo: string }>;
 }
 
+/** Totales de una orden o CeCo en la vista previa. */
+export interface UnidadPrevia {
+  unidad: string;
+  tipo: "oi" | "ceco";
+  nombre: string | null;
+  lineas: number;
+  monto: number;
+  conMacroactividad: number;
+}
+
+export interface PreviaPresupuesto {
+  nombreArchivo: string;
+  filasLeidas: number;
+  lineas: number;
+  omitidasEnCero: number;
+  montoTotal: number;
+  porFy: ResumenCargaPresupuesto["porFy"];
+  porUnidad: UnidadPrevia[];
+  macroactividades: number;
+  oisDesconocidas: string[];
+  cecosDesconocidos: string[];
+  rechazos: Array<{ fila: number; motivo: string }>;
+}
+
 /** Acá "-" también cuenta como celda vacía (formato de Extra Plan la usa así). */
 function textoCelda(valor: ExcelJS.CellValue): string | null {
   return textoCeldaBase(valor, { tratarGuionComoVacio: true });
@@ -74,6 +105,7 @@ const ALIAS: Record<string, string[]> = {
   detalleGasto: ["detalle del gasto"],
   monto: ["$presupuesto", "presupuesto", "monto", "$ presupuesto"],
   responsable: ["responsable"],
+  macroactividad: ["macroactividad", "macro actividad"],
 };
 
 /** Devuelve {anio, mes} desde una celda que puede ser fecha, serial o texto. */
@@ -116,16 +148,27 @@ function repartirCuenta(
   return { numero: a, descripcion: b };
 }
 
-export async function importarPresupuestoExcel(
+function etiquetaFy(fy: number): string {
+  return `${String(fy % 100).padStart(2, "0")}/${String((fy + 1) % 100).padStart(2, "0")}`;
+}
+
+interface Analisis {
+  /** Sin id_carga todavía: se asigna al escribir. */
+  registros: Array<Omit<RegistroPresupuesto, "id_carga">>;
+  rechazos: Array<{ fila: number; motivo: string }>;
+  filasLeidas: number;
+  omitidasEnCero: number;
+  oisDesconocidas: Set<string>;
+  cecosDesconocidos: Set<string>;
+  /** Para la vista previa: código y nombre de cada unidad. */
+  nombres: Map<string, { unidad: string; tipo: "oi" | "ceco"; nombre: string | null }>;
+}
+
+async function analizar(
   cliente: Cliente,
   buffer: Buffer,
-  opciones: {
-    nombreArchivo: string;
-    hashArchivo: string;
-    tipo: TipoPresupuesto;
-    idUsuario: string | null;
-  },
-): Promise<ResumenCargaPresupuesto> {
+  tipo: TipoPresupuesto,
+): Promise<Analisis> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer as unknown as ArrayBuffer);
 
@@ -146,26 +189,208 @@ export async function importarPresupuestoExcel(
     return undefined;
   };
 
-  const faltantes = (["oi", "mes", "monto"] as const).filter(
-    (c) => columna(c) === undefined,
-  );
+  const faltantes = (["mes", "monto"] as const).filter((c) => columna(c) === undefined);
+  if (columna("oi") === undefined && columna("ceco") === undefined) {
+    faltantes.unshift("oi" as never);
+  }
   if (faltantes.length > 0) {
     throw new Error(
       `Faltan columnas obligatorias (${faltantes.join(", ")}). ` +
-        `Se esperaba al menos "Nueva Orden", "Mes" y "$Presupuesto". ` +
+        `Se esperaba al menos "Nueva Orden" (o "Centro de Costo"), "Mes" y "$Presupuesto". ` +
         `Encabezados leídos: ${[...indice.keys()].join(" | ")}`,
     );
   }
 
-  // Maestra de OIs: es la que deduce CeCo y Hunting Zone.
-  const { data: ois, error: errorOis } = await cliente
-    .from("ordenes_internas")
-    .select("id, codigo_oi");
-  if (errorOis) throw new Error(`Leyendo órdenes internas: ${errorOis.message}`);
+  // Maestras: la OI deduce CeCo y Hunting Zone; el CeCo, las líneas sin orden.
+  const [ois, cecos] = await Promise.all([
+    cliente.from("ordenes_internas").select("id, codigo_oi, nombre"),
+    cliente.from("cecos").select("id, codigo_sap, nombre"),
+  ]);
+  if (ois.error) throw new Error(`Leyendo órdenes internas: ${ois.error.message}`);
+  if (cecos.error) throw new Error(`Leyendo centros de costo: ${cecos.error.message}`);
 
   const oiPorCodigo = new Map(
-    (ois ?? []).map((o) => [String(o.codigo_oi).trim().toUpperCase(), o.id as string]),
+    (ois.data ?? []).map((o) => [
+      String(o.codigo_oi).trim().toUpperCase(),
+      { id: o.id as string, codigo: o.codigo_oi as string, nombre: o.nombre as string | null },
+    ]),
   );
+  const cecoPorCodigo = new Map(
+    (cecos.data ?? []).map((c) => [
+      String(c.codigo_sap).trim().toUpperCase(),
+      { id: c.id as string, codigo: c.codigo_sap as string, nombre: c.nombre as string | null },
+    ]),
+  );
+
+  const a: Analisis = {
+    registros: [],
+    rechazos: [],
+    filasLeidas: 0,
+    omitidasEnCero: 0,
+    oisDesconocidas: new Set(),
+    cecosDesconocidos: new Set(),
+    nombres: new Map(),
+  };
+
+  hoja.eachRow({ includeEmpty: false }, (row, numero) => {
+    if (numero === 1) return;
+
+    const valor = (campo: keyof typeof ALIAS): ExcelJS.CellValue => {
+      const c = columna(campo);
+      return c === undefined ? null : row.getCell(c).value;
+    };
+
+    // "0" en la columna de orden es como vacío: el formato de carga por CeCo
+    // la deja así.
+    const oiCrudo = textoCelda(valor("oi"));
+    const codigoOi = oiCrudo === "0" ? null : oiCrudo;
+    const codigoCeco = textoCelda(valor("ceco"));
+    const monto = montoCelda(valor("monto"));
+    const periodo = periodoCelda(valor("mes"));
+
+    // Fila vacía o de totales: sin unidad y sin monto no aporta nada.
+    if (codigoOi === null && codigoCeco === null && monto === null) return;
+
+    a.filasLeidas += 1;
+
+    if (monto === null) {
+      a.rechazos.push({ fila: numero, motivo: "Sin monto presupuestado" });
+      return;
+    }
+    // Las planillas traen la grilla completa de meses: las celdas en 0 no son líneas.
+    if (monto === 0) {
+      a.omitidasEnCero += 1;
+      return;
+    }
+    if (periodo === null) {
+      a.rechazos.push({ fila: numero, motivo: "Mes vacío o ilegible" });
+      return;
+    }
+
+    let idOi: string | null = null;
+    let idCeco: string | null = null;
+    if (codigoOi !== null) {
+      const oi = oiPorCodigo.get(codigoOi.toUpperCase());
+      if (!oi) {
+        a.oisDesconocidas.add(codigoOi);
+        a.rechazos.push({
+          fila: numero,
+          motivo: `La Orden Interna "${codigoOi}" no existe en la maestra: cárgala antes de reintentar`,
+        });
+        return;
+      }
+      idOi = oi.id;
+      a.nombres.set(oi.id, { unidad: oi.codigo, tipo: "oi", nombre: oi.nombre });
+    } else if (codigoCeco !== null) {
+      const ceco = cecoPorCodigo.get(codigoCeco.toUpperCase());
+      if (!ceco) {
+        a.cecosDesconocidos.add(codigoCeco);
+        a.rechazos.push({
+          fila: numero,
+          motivo: `El Centro de Costo "${codigoCeco}" no existe en la maestra: cárgalo antes de reintentar`,
+        });
+        return;
+      }
+      idCeco = ceco.id;
+      a.nombres.set(ceco.id, { unidad: ceco.codigo, tipo: "ceco", nombre: ceco.nombre });
+    } else {
+      a.rechazos.push({ fila: numero, motivo: "Sin Orden Interna ni Centro de Costo" });
+      return;
+    }
+
+    const cuenta = repartirCuenta(textoCelda(valor("cuentaA")), textoCelda(valor("cuentaB")));
+
+    a.registros.push({
+      id_oi: idOi,
+      id_ceco: idCeco,
+      tipo,
+      // Fecha LOCAL: fyDeFecha lee getMonth(), y un Date.UTC del día 1 cae el
+      // día anterior en cualquier huso al oeste de Greenwich (octubre → FY previo).
+      fy: fyDeFecha(new Date(periodo.anio, periodo.mes - 1, 1)),
+      mes: periodo.mes,
+      quarter: textoCelda(valor("quarter")),
+      monto,
+      cuenta_contable: cuenta.numero,
+      descripcion_cuenta: cuenta.descripcion,
+      tipo_gasto: textoCelda(valor("tipoGasto")),
+      detalle_gasto: textoCelda(valor("detalleGasto")),
+      responsable: textoCelda(valor("responsable")),
+      area: textoCelda(valor("area")),
+      ceco_declarado: codigoCeco,
+      macroactividad: textoCelda(valor("macroactividad")),
+    });
+  });
+
+  return a;
+}
+
+function totalesPorFy(
+  registros: Analisis["registros"],
+): ResumenCargaPresupuesto["porFy"] {
+  const acumulado = new Map<number, { monto: number; filas: number }>();
+  for (const r of registros) {
+    const previo = acumulado.get(r.fy) ?? { monto: 0, filas: 0 };
+    acumulado.set(r.fy, { monto: previo.monto + r.monto, filas: previo.filas + 1 });
+  }
+  return [...acumulado.entries()]
+    .sort((x, y) => x[0] - y[0])
+    .map(([fy, v]) => ({ fy, etiqueta: etiquetaFy(fy), monto: v.monto, filas: v.filas }));
+}
+
+/** Vista previa: lo que se cargaría, sin escribir nada. */
+export async function analizarPresupuestoExcel(
+  cliente: Cliente,
+  buffer: Buffer,
+  opciones: { nombreArchivo: string; tipo: TipoPresupuesto },
+): Promise<PreviaPresupuesto> {
+  const a = await analizar(cliente, buffer, opciones.tipo);
+
+  const porUnidad = new Map<string, UnidadPrevia>();
+  for (const r of a.registros) {
+    const clave = (r.id_oi ?? r.id_ceco) as string;
+    const info = a.nombres.get(clave);
+    const u = porUnidad.get(clave) ?? {
+      unidad: info?.unidad ?? "—",
+      tipo: info?.tipo ?? "oi",
+      nombre: info?.nombre ?? null,
+      lineas: 0,
+      monto: 0,
+      conMacroactividad: 0,
+    };
+    u.lineas += 1;
+    u.monto += r.monto;
+    if (r.macroactividad) u.conMacroactividad += 1;
+    porUnidad.set(clave, u);
+  }
+
+  return {
+    nombreArchivo: opciones.nombreArchivo,
+    filasLeidas: a.filasLeidas,
+    lineas: a.registros.length,
+    omitidasEnCero: a.omitidasEnCero,
+    montoTotal: a.registros.reduce((s, r) => s + r.monto, 0),
+    porFy: totalesPorFy(a.registros),
+    porUnidad: [...porUnidad.values()].sort((x, y) => y.monto - x.monto),
+    macroactividades: new Set(a.registros.flatMap((r) => (r.macroactividad ? [r.macroactividad] : [])))
+      .size,
+    oisDesconocidas: [...a.oisDesconocidas],
+    cecosDesconocidos: [...a.cecosDesconocidos],
+    rechazos: a.rechazos.slice(0, 50),
+  };
+}
+
+export async function importarPresupuestoExcel(
+  cliente: Cliente,
+  buffer: Buffer,
+  opciones: {
+    nombreArchivo: string;
+    hashArchivo: string;
+    tipo: TipoPresupuesto;
+    idUsuario: string | null;
+  },
+): Promise<ResumenCargaPresupuesto> {
+  const a = await analizar(cliente, buffer, opciones.tipo);
+  const { rechazos, filasLeidas, oisDesconocidas } = a;
 
   const tipoCarga =
     opciones.tipo === "plan" ? "presupuesto_plan" : "presupuesto_extra_plan";
@@ -187,70 +412,7 @@ export async function importarPresupuestoExcel(
   }
   const idCarga = carga.id as string;
 
-  const registros: RegistroPresupuesto[] = [];
-  const rechazos: Array<{ fila: number; motivo: string }> = [];
-  const oisDesconocidas = new Set<string>();
-  let filasLeidas = 0;
-
-  hoja.eachRow({ includeEmpty: false }, (row, numero) => {
-    if (numero === 1) return;
-
-    const valor = (campo: keyof typeof ALIAS): ExcelJS.CellValue => {
-      const c = columna(campo);
-      return c === undefined ? null : row.getCell(c).value;
-    };
-
-    const codigoOi = textoCelda(valor("oi"));
-    const monto = montoCelda(valor("monto"));
-    const periodo = periodoCelda(valor("mes"));
-
-    // Fila vacía o de totales: sin OI y sin monto no aporta nada.
-    if (codigoOi === null && monto === null) return;
-
-    filasLeidas += 1;
-
-    if (codigoOi === null) {
-      rechazos.push({ fila: numero, motivo: "Sin Orden Interna" });
-      return;
-    }
-    if (monto === null) {
-      rechazos.push({ fila: numero, motivo: "Sin monto presupuestado" });
-      return;
-    }
-    if (periodo === null) {
-      rechazos.push({ fila: numero, motivo: "Mes vacío o ilegible" });
-      return;
-    }
-
-    const idOi = oiPorCodigo.get(codigoOi.toUpperCase());
-    if (!idOi) {
-      oisDesconocidas.add(codigoOi);
-      rechazos.push({
-        fila: numero,
-        motivo: `La Orden Interna "${codigoOi}" no existe en la maestra: cárgala antes de reintentar`,
-      });
-      return;
-    }
-
-    const cuenta = repartirCuenta(textoCelda(valor("cuentaA")), textoCelda(valor("cuentaB")));
-
-    registros.push({
-      id_oi: idOi,
-      tipo: opciones.tipo,
-      fy: fyDeFecha(new Date(Date.UTC(periodo.anio, periodo.mes - 1, 1))),
-      mes: periodo.mes,
-      quarter: textoCelda(valor("quarter")),
-      monto,
-      cuenta_contable: cuenta.numero,
-      descripcion_cuenta: cuenta.descripcion,
-      tipo_gasto: textoCelda(valor("tipoGasto")),
-      detalle_gasto: textoCelda(valor("detalleGasto")),
-      responsable: textoCelda(valor("responsable")),
-      area: textoCelda(valor("area")),
-      ceco_declarado: textoCelda(valor("ceco")),
-      id_carga: idCarga,
-    });
-  });
+  const registros: RegistroPresupuesto[] = a.registros.map((r) => ({ ...r, id_carga: idCarga }));
 
   let insertadas = 0;
 
@@ -271,17 +433,6 @@ export async function importarPresupuestoExcel(
       .insert(rechazos.map((r) => ({ id_carga: idCarga, fila: r.fila, motivo: r.motivo })));
   }
 
-  // Resumen por año fiscal para que el usuario cuadre contra su planilla.
-  const acumuladoFy = new Map<number, { monto: number; filas: number }>();
-  for (const r of registros) {
-    const fy = Number(r.fy);
-    const previo = acumuladoFy.get(fy) ?? { monto: 0, filas: 0 };
-    acumuladoFy.set(fy, {
-      monto: previo.monto + Number(r.monto),
-      filas: previo.filas + 1,
-    });
-  }
-
   const montoTotal = registros.reduce((s, r) => s + Number(r.monto), 0);
 
   await cliente
@@ -292,9 +443,17 @@ export async function importarPresupuestoExcel(
       filas_insertadas: insertadas,
       filas_rechazadas: rechazos.length,
       mensaje:
-        oisDesconocidas.size > 0
-          ? `Órdenes internas fuera de la maestra: ${[...oisDesconocidas].join(", ")}`
-          : null,
+        [
+          oisDesconocidas.size > 0
+            ? `Órdenes internas fuera de la maestra: ${[...oisDesconocidas].join(", ")}`
+            : null,
+          a.cecosDesconocidos.size > 0
+            ? `Centros de costo fuera de la maestra: ${[...a.cecosDesconocidos].join(", ")}`
+            : null,
+          a.omitidasEnCero > 0 ? `${a.omitidasEnCero} líneas en 0 omitidas` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || null,
       finalizada_at: new Date().toISOString(),
     })
     .eq("id", idCarga);
@@ -307,14 +466,7 @@ export async function importarPresupuestoExcel(
     insertadas,
     rechazadas: rechazos.length,
     montoTotal,
-    porFy: [...acumuladoFy.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([fy, v]) => ({
-        fy,
-        etiqueta: `${String(fy % 100).padStart(2, "0")}/${String((fy + 1) % 100).padStart(2, "0")}`,
-        monto: v.monto,
-        filas: v.filas,
-      })),
+    porFy: totalesPorFy(a.registros),
     oisDesconocidas: [...oisDesconocidas],
     rechazos: rechazos.slice(0, 20),
   };

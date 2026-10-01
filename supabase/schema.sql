@@ -2214,3 +2214,47 @@ comment on view public.v_preregistrado_mensual is
 -- rompería Fondos y Facturas mientras tanto.
 drop view if exists public.v_comprometido_trimestre;
 drop function if exists public.disponibilidad_trimestral(smallint, date);
+
+-- ============================================================================
+-- 18. Macroactividades del Plan como sugerencias de Motivo — 2026-10-01
+-- ============================================================================
+-- Cada línea del Plan trae una MACROACTIVIDAD (la del archivo o la deducida de
+-- su descripción). Al registrar un gasto, el Motivo sugiere primero las
+-- macroactividades planificadas del año fiscal y después los motivos ya usados
+-- en ese mismo año: el Real queda clasificado con el mismo vocabulario del Plan.
+
+alter table public.presupuestos
+  add column if not exists macroactividad text;
+
+comment on column public.presupuestos.macroactividad is
+  'Categoría de la línea del Plan. Se sugiere como Motivo al clasificar gastos del mismo año fiscal.';
+
+create index if not exists idx_presu_macroactividad
+  on public.presupuestos(fy, macroactividad) where macroactividad is not null;
+
+-- origen = 'plan'  : macroactividad de una línea del Plan/Extra Plan (id_oi o
+--                    id_ceco de esa línea; monto planificado).
+-- origen = 'usado' : motivo ya puesto en un gasto o factura de ese año fiscal.
+create or replace view public.v_sugerencias_motivo as
+select p.fy, trim(p.macroactividad) as valor, 'plan'::text as origen,
+       p.id_oi, p.id_ceco, count(*)::int as usos, sum(p.monto) as monto
+from public.presupuestos p
+where p.macroactividad is not null and trim(p.macroactividad) <> ''
+group by p.fy, trim(p.macroactividad), p.id_oi, p.id_ceco
+union all
+select u.fy, u.valor, 'usado', null, null, count(*)::int, null
+from (
+  select g.fy, trim(g.motivo) as valor
+  from public.gastos g
+  where g.motivo is not null and trim(g.motivo) <> ''
+  union all
+  select public.fy_de_fecha(coalesce(f.fecha_factura, f.created_at::date)), trim(f.motivo)
+  from public.facturas_preregistradas f
+  where f.motivo is not null and trim(f.motivo) <> '' and f.activo
+) u
+group by u.fy, u.valor;
+
+alter view public.v_sugerencias_motivo set (security_invoker = on);
+
+comment on view public.v_sugerencias_motivo is
+  'Sugerencias de Motivo por año fiscal: macroactividades del Plan (con su OI/CeCo) y motivos ya usados.';

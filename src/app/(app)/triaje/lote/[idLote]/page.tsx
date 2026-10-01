@@ -14,6 +14,7 @@ import {
 } from "@/components/triaje/asistente/PasosAsistente";
 import { TablaTriaje, type GastoPendiente } from "@/components/triaje/TablaTriaje";
 import { requireRol } from "@/lib/auth";
+import { obtenerFySeleccionado } from "@/lib/fiscal-seleccionado";
 import { sugerirFacturas, type Sugerencia } from "@/lib/ingesta/sugerenciasCruce";
 import { tienePermiso } from "@/lib/permisos";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -80,7 +81,9 @@ export default async function LotePage({
   // Solo se consulta lo que el paso visible necesita.
   const [facturas, catalogos] = await Promise.all([
     paso === 4 ? obtenerFacturasSinCruzar(supabase) : Promise.resolve(null),
-    paso === 5 ? obtenerCatalogosTriaje(supabase) : Promise.resolve(null),
+    paso === 5
+      ? obtenerCatalogosTriaje(supabase, await obtenerFySeleccionado())
+      : Promise.resolve(null),
   ]);
 
   const sugerencias: Record<string, Sugerencia[]> = {};

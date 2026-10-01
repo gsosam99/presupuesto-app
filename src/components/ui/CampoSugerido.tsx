@@ -10,6 +10,8 @@ interface Props extends Omit<InputHTMLAttributes<HTMLInputElement>, "list"> {
    * datalist por celda duplicaría el catálogo cientos de veces en el DOM.
    */
   idLista?: string;
+  /** Texto secundario por valor (p. ej. "Plan"); el navegador lo muestra junto a la opción. */
+  etiquetas?: Readonly<Record<string, string>>;
 }
 
 const CLASE_BASE =
@@ -22,7 +24,7 @@ const CLASE_BASE =
  * errores de tipeo que después impidan agrupar ("Traslados" vs "traslados "),
  * no cerrar el catálogo.
  */
-export function CampoSugerido({ sugerencias, idLista, className, ...props }: Props) {
+export function CampoSugerido({ sugerencias, idLista, etiquetas, className, ...props }: Props) {
   const idPropio = useId();
   const compartido = idLista !== undefined;
   const id = compartido ? idLista : idPropio;
@@ -38,7 +40,9 @@ export function CampoSugerido({ sugerencias, idLista, className, ...props }: Pro
       {!compartido && (
         <datalist id={id}>
           {(sugerencias ?? []).map((s) => (
-            <option key={s} value={s} />
+            <option key={s} value={s}>
+              {etiquetas?.[s]}
+            </option>
           ))}
         </datalist>
       )}
@@ -50,14 +54,18 @@ export function CampoSugerido({ sugerencias, idLista, className, ...props }: Pro
 export function ListaSugerencias({
   id,
   sugerencias,
+  etiquetas,
 }: {
   id: string;
   sugerencias: readonly string[];
+  etiquetas?: Readonly<Record<string, string>>;
 }) {
   return (
     <datalist id={id}>
       {sugerencias.map((s) => (
-        <option key={s} value={s} />
+        <option key={s} value={s}>
+          {etiquetas?.[s]}
+        </option>
       ))}
     </datalist>
   );
