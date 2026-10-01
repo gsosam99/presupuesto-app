@@ -417,13 +417,13 @@ export function TablaMaestra({
           </span>
         )}
         {acceso.estado !== "activo" && !soloLectura && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
             <button
               type="button"
               disabled={ocupado || Boolean(edicion[fila.id])}
               title={edicion[fila.id] ? "Guarda los cambios de la fila primero" : undefined}
               onClick={() => void invitar(fila.id, false)}
-              className="inline-flex items-center gap-1 font-semibold text-[var(--blue)] hover:underline disabled:opacity-40"
+              className="inline-flex items-center gap-1 whitespace-nowrap font-semibold text-[var(--blue)] hover:underline disabled:opacity-40"
             >
               <Mail className="size-3" aria-hidden />
               {acceso.estado === "invitado" ? "Reenviar" : "Invitar"}
@@ -432,7 +432,7 @@ export function TablaMaestra({
               type="button"
               disabled={ocupado || Boolean(edicion[fila.id])}
               onClick={() => void invitar(fila.id, true)}
-              className="inline-flex items-center gap-1 font-semibold text-[var(--ink-soft)] hover:underline disabled:opacity-40"
+              className="inline-flex items-center gap-1 whitespace-nowrap font-semibold text-[var(--ink-soft)] hover:underline disabled:opacity-40"
             >
               <Copy className="size-3" aria-hidden />
               Copiar enlace
@@ -510,8 +510,10 @@ export function TablaMaestra({
               {campos.map((c) => (
                 <Th key={c.clave} campo={c} orden={orden} onOrdenar={ordenarPor} />
               ))}
-              {conAcceso && <th className="w-48">Acceso</th>}
-              <th className="w-24">
+              {conAcceso && <th className="min-w-[15rem]">Acceso</th>}
+              {/* w-px: la columna se ajusta a su contenido ("Guardar" solo aparece
+                  en filas editadas) en vez de reservar espacio vacío. */}
+              <th className="w-px">
                 <span className="sr-only">Acciones</span>
               </th>
             </tr>
@@ -536,7 +538,7 @@ export function TablaMaestra({
                     Con rol, se le envía la invitación al crear.
                   </td>
                 )}
-                <td className="whitespace-nowrap">
+                <td className="w-px whitespace-nowrap">
                   <button
                     type="button"
                     disabled={guardando === "nueva"}
@@ -578,8 +580,8 @@ export function TablaMaestra({
                       </td>
                     );
                   })}
-                  {conAcceso && <td className="text-xs">{celdaAcceso(fila)}</td>}
-                  <td className="whitespace-nowrap">
+                  {conAcceso && <td className="whitespace-normal text-xs">{celdaAcceso(fila)}</td>}
+                  <td className="w-px whitespace-nowrap">
                     {modificada && (
                       <button
                         type="button"
