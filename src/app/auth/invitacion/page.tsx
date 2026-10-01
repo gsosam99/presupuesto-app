@@ -1,6 +1,7 @@
 import { FormularioInvitacion } from "@/components/auth/FormularioInvitacion";
 
-export const metadata = { title: "Invitación — IENN Gastos App" };
+// También recibe el enlace de "olvidé mi contraseña": el título no asume cuál.
+export const metadata = { title: "Elegir contraseña — IENN Gastos App" };
 
 export default function InvitacionPage() {
   return (
@@ -9,7 +10,7 @@ export default function InvitacionPage() {
         <p className="text-sm font-medium tracking-wide text-slate-500">
           Innovación y Nuevos Negocios
         </p>
-        <h1 className="mt-1 text-2xl font-semibold text-slate-900">Bienvenido a IENN Gastos App</h1>
+        <h1 className="mt-1 text-2xl font-semibold text-slate-900">IENN Gastos App</h1>
       </header>
 
       <FormularioInvitacion />

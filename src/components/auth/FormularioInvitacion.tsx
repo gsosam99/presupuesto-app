@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/Button";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type Estado =
-  { tipo: "verificando" } | { tipo: "listo"; email: string } | { tipo: "invalido"; motivo: string };
+  | { tipo: "verificando" }
+  | { tipo: "listo"; email: string; recuperacion: boolean }
+  | { tipo: "invalido"; motivo: string; recuperacion: boolean };
 
 const CONTROL =
   "mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200";
@@ -18,7 +21,8 @@ const MINIMO = 8;
  * Destino del enlace de invitación. Supabase redirige acá con la sesión en
  * el fragmento (#access_token=…&refresh_token=…): se guarda como cookie con
  * setSession y la persona elige su contraseña. Con `?code=` (flujo PKCE) se
- * canjea el código. Sirve igual para el enlace copiado desde Equipo.
+ * canjea el código. Sirve igual para el enlace copiado desde Equipo y para
+ * el de "olvidé mi contraseña" (type=recovery en el fragmento).
  */
 export function FormularioInvitacion() {
   const router = useRouter();
@@ -37,6 +41,7 @@ export function FormularioInvitacion() {
       const fragmento = new URLSearchParams(window.location.hash.slice(1));
       const consulta = new URLSearchParams(window.location.search);
       const falla = fragmento.get("error_description") ?? consulta.get("error_description");
+      const recuperacion = fragmento.get("type") === "recovery";
 
       if (falla) {
         if (!cancelado) {
@@ -45,6 +50,7 @@ export function FormularioInvitacion() {
             motivo: /expired|invalid/i.test(falla)
               ? "El enlace venció o ya se usó."
               : falla.replace(/\+/g, " "),
+            recuperacion,
           });
         }
         return;
@@ -70,10 +76,10 @@ export function FormularioInvitacion() {
       const { data } = await supabase.auth.getUser();
       if (cancelado) return;
       if (errorSesion || !data.user?.email) {
-        setEstado({ tipo: "invalido", motivo: "El enlace venció o ya se usó." });
+        setEstado({ tipo: "invalido", motivo: "El enlace venció o ya se usó.", recuperacion });
         return;
       }
-      setEstado({ tipo: "listo", email: data.user.email });
+      setEstado({ tipo: "listo", email: data.user.email, recuperacion });
     }
 
     void verificar();
@@ -114,7 +120,16 @@ export function FormularioInvitacion() {
       <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-900">
         <p className="font-semibold">{estado.motivo}</p>
         <p className="mt-1">
-          Pídele a un administrador que te reenvíe la invitación desde Configuración → Equipo.
+          {estado.recuperacion ? (
+            <>
+              Pide uno nuevo desde{" "}
+              <Link href="/login" className="font-semibold underline">
+                Entrar → ¿Olvidaste tu contraseña?
+              </Link>
+            </>
+          ) : (
+            "Pídele a un administrador que te reenvíe la invitación desde Configuración → Equipo."
+          )}
         </p>
       </div>
     );
@@ -123,8 +138,10 @@ export function FormularioInvitacion() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <p className="text-sm text-slate-600">
-        Hola, <strong className="text-slate-900">{estado.email}</strong>. Elige una contraseña para
-        entrar a la app.
+        Hola, <strong className="text-slate-900">{estado.email}</strong>.{" "}
+        {estado.recuperacion
+          ? "Elige tu contraseña nueva."
+          : "Elige una contraseña para entrar a la app."}
       </p>
 
       <div>
