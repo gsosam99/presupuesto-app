@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 const ANCHOS = {
@@ -26,6 +27,8 @@ interface Props {
   children: ReactNode;
 }
 
+const sinSuscripcion = (): (() => void) => () => {};
+
 /**
  * Diálogo modal de la app.
  *
@@ -35,6 +38,9 @@ interface Props {
  * - Bloquea el scroll de la página detrás (en <html>, que es el que se
  *   desplaza) y lleva el foco al primer control.
  * - En pantallas chicas sale desde abajo, a todo el ancho.
+ * - Se dibuja en un portal sobre <body>: abierto desde una celda de tabla
+ *   heredaba su `white-space: nowrap` y su alineación, y el texto no hacía
+ *   salto de línea y se montaba sobre lo demás.
  */
 export function Modal({
   titulo,
@@ -47,6 +53,12 @@ export function Modal({
 }: Props) {
   const idTitulo = useId();
   const cuerpoRef = useRef<HTMLDivElement>(null);
+  // false en el servidor (no hay document para el portal), true en el cliente.
+  const montado = useSyncExternalStore(
+    sinSuscripcion,
+    () => true,
+    () => false,
+  );
 
   useEffect(() => {
     function alTeclado(e: KeyboardEvent) {
@@ -67,11 +79,13 @@ export function Modal({
     return () => {
       html.style.overflow = previo;
     };
-  }, []);
+  }, [montado]);
 
-  return (
+  if (!montado) return null;
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(12,58,87,0.45)] sm:items-center sm:p-6"
+      className="fixed inset-0 z-50 flex items-end justify-center whitespace-normal break-words bg-[rgba(24,24,27,0.4)] text-left text-sm font-normal normal-case tracking-normal text-[var(--ink)] sm:items-center sm:p-6"
       onClick={() => {
         if (!bloqueado) onCerrar();
       }}
@@ -81,14 +95,21 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={idTitulo}
         onClick={(e) => e.stopPropagation()}
-        className={`flex max-h-[92svh] w-full ${ANCHOS[ancho]} flex-col overflow-hidden rounded-t-2xl bg-[var(--card)] shadow-2xl sm:rounded-xl`}
+        className={`flex max-h-[92svh] w-full ${ANCHOS[ancho]} flex-col overflow-hidden rounded-t-2xl bg-[var(--card)] shadow-[0_12px_32px_-8px_rgba(0,0,0,0.22)] sm:rounded-xl`}
       >
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--line)] px-5 py-4">
           <div className="min-w-0">
-            <h2 id={idTitulo} className="text-base font-semibold text-[var(--ink)] sm:text-lg">
+            <h2
+              id={idTitulo}
+              className="text-base font-semibold text-[var(--ink)] [overflow-wrap:anywhere] sm:text-lg"
+            >
               {titulo}
             </h2>
-            {descripcion && <p className="mt-1 text-sm text-[var(--muted)]">{descripcion}</p>}
+            {descripcion && (
+              <p className="mt-1 text-sm text-[var(--muted)] [overflow-wrap:anywhere]">
+                {descripcion}
+              </p>
+            )}
           </div>
           {conBotonCerrar && (
             <button
@@ -110,6 +131,7 @@ export function Modal({
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
