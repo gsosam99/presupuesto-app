@@ -1,3 +1,6 @@
+import { Suspense } from "react";
+
+import { BarraNavegacion } from "@/components/nav/BarraNavegacion";
 import { Sidebar } from "@/components/nav/Sidebar";
 import { ProveedorAvisos } from "@/components/ui/Avisos";
 import { requireRol } from "@/lib/auth";
@@ -20,6 +23,10 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
   return (
     <div className="flex min-h-svh flex-col lg:flex-row">
+      {/* useSearchParams: sin Suspense, Next no puede prerenderizar el resto. */}
+      <Suspense fallback={null}>
+        <BarraNavegacion />
+      </Suspense>
       <Sidebar
         usuario={{ email: usuario.email ?? "", rol }}
         aniosFiscales={(anios.data ?? []) as Array<{ fy: number; etiqueta: string }>}

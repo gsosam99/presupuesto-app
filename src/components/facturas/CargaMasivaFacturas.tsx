@@ -57,6 +57,7 @@ export function CargaMasivaFacturas() {
 
       <div className="mt-4">
         <Button
+          cargando={subiendo}
           type="button"
           variante="secundario"
           disabled={subiendo}

@@ -169,6 +169,7 @@ export function BotonRevertir({ idCarga, nombreArchivo }: Props) {
               Cancelar
             </Button>
             <Button
+              cargando={trabajando}
               type="button"
               variante="peligro"
               disabled={trabajando || texto !== nombreArchivo || aBorrar === 0}

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { avisarNavegacion } from "@/components/nav/BarraNavegacion";
 import { useAvisos } from "@/components/ui/Avisos";
 import { ModalConfirmacion } from "@/components/ui/ModalConfirmacion";
 
@@ -40,7 +41,10 @@ export function BotonEliminarSolicitud({
       }
       setConfirmando(false);
       avisos.exito(`Solicitud "${titulo}" eliminada.`);
-      if (redirigirA) router.push(redirigirA);
+      if (redirigirA) {
+        avisarNavegacion();
+        router.push(redirigirA);
+      }
       router.refresh();
     } catch {
       avisos.error("No se pudo conectar con el servidor.");

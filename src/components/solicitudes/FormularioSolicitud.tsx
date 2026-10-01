@@ -3,6 +3,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
+import { avisarNavegacion } from "@/components/nav/BarraNavegacion";
 import { Button } from "@/components/ui/Button";
 import {
   AYUDA,
@@ -171,6 +172,7 @@ export function FormularioSolicitud({
       return;
     }
 
+    avisarNavegacion();
     router.push(`/solicitudes/${json.id}`);
     router.refresh();
   }
@@ -484,7 +486,7 @@ export function FormularioSolicitud({
       )}
 
       <div className="mt-5">
-        <Button type="submit" disabled={enviando}>
+        <Button cargando={enviando} type="submit" disabled={enviando}>
           {enviando ? "Creando…" : "Crear borrador"}
         </Button>
       </div>

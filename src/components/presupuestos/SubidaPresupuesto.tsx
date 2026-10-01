@@ -59,6 +59,7 @@ export function SubidaPresupuesto() {
 
       <div className="mt-4">
         <Button
+          cargando={subiendo}
           type="button"
           disabled={subiendo}
           onClick={() => inputRef.current?.click()}

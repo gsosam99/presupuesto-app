@@ -3,6 +3,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
+import { avisarNavegacion } from "@/components/nav/BarraNavegacion";
 import { Button } from "@/components/ui/Button";
 import { CampoSugerido } from "@/components/ui/CampoSugerido";
 import { AYUDA, CONTROL, ETIQUETA } from "@/components/ui/estilos";
@@ -247,6 +248,7 @@ export function FormularioFactura({
     }
 
     if (!otra && volverA) {
+      avisarNavegacion();
       router.push(volverA);
       router.refresh();
       return;
@@ -611,7 +613,12 @@ export function FormularioFactura({
             Cancelar
           </Button>
         )}
-        <Button type="submit" value="registrar" disabled={enviando || faltaOrden}>
+        <Button
+          cargando={enviando}
+          type="submit"
+          value="registrar"
+          disabled={enviando || faltaOrden}
+        >
           {enviando ? "Guardando…" : editando ? "Guardar cambios" : "Registrar factura"}
         </Button>
         {!editando && volverA && (

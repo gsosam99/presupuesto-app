@@ -77,7 +77,7 @@ export function FormularioLogin() {
         </p>
       )}
 
-      <Button type="submit" disabled={enviando} className="w-full">
+      <Button cargando={enviando} type="submit" disabled={enviando} className="w-full">
         {enviando ? "Entrando…" : "Entrar"}
       </Button>
     </form>
