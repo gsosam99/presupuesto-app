@@ -2008,6 +2008,18 @@ plan_mes as (
   where p.fy between i.fy0 and p_fy
   group by 1, 2, 3, 4, 5
 ),
+-- 2026-10-01: las OI tipo 'tag' (#CAM, #SNA) son etiquetas de la app, no
+-- llevan fondos. Su gasto real lo imputó SAP al CeCo, así que cuenta contra
+-- la unidad del CeCo (igual que v_preregistrado_mensual).
+gastos_unidad as (
+  select
+    g.fy_efectivo, g.fecha_efectiva, g.monto_real,
+    case when oi.tipo = 'real' then g.id_oi end         as id_oi,
+    case when oi.tipo is distinct from 'real' then g.id_ceco end as id_ceco
+  from public.v_gastos_periodo g
+  left join public.ordenes_internas oi on oi.id = g.id_oi
+  where g.estado_revision <> 'excluido'
+),
 real_mes as (
   select
     coalesce(g.id_oi::text, 'ceco:' || g.id_ceco::text)  as clave,
@@ -2015,9 +2027,8 @@ real_mes as (
     g.fy_efectivo                                       as fy,
     extract(month from g.fecha_efectiva)::smallint      as mes,
     sum(g.monto_real)                                   as monto_real
-  from public.v_gastos_periodo g, inicio i
+  from gastos_unidad g, inicio i
   where g.fy_efectivo between i.fy0 and p_fy
-    and g.estado_revision <> 'excluido'
     and (g.id_oi is not null or g.id_ceco is not null)
   group by 1, 2, 3, 4, 5
 ),

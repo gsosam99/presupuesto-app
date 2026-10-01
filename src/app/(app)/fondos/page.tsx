@@ -28,7 +28,24 @@ function monto(valor: number): string {
   return Math.abs(valor) < 0.005 ? "—" : moneda.format(valor);
 }
 
-export default async function FondosPage() {
+const SIN_HZ = "sin-hz";
+
+/** Nombre del grupo de Hunting Zone de una unidad (los CeCo van aparte). */
+function grupoDe(u: UnidadFondos): string {
+  if (u.huntingZone) return u.huntingZone;
+  return u.idCeco ? "Centros de Costo" : "Sin Hunting Zone";
+}
+
+function slugGrupo(nombre: string): string {
+  return nombre === "Sin Hunting Zone" ? SIN_HZ : nombre;
+}
+
+export default async function FondosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ hz?: string }>;
+}) {
+  const { hz: hzParam } = await searchParams;
   const { rol } = await requireRol();
   const puedeSolicitar = tienePermiso(rol, "solicitudes:crear");
 
@@ -46,7 +63,22 @@ export default async function FondosPage() {
     obtenerPreregistrado(supabase, fy),
     obtenerFechaDatosSap(supabase),
   ]);
-  const unidades = agruparPorUnidad(filas);
+  const todas = agruparPorUnidad(filas);
+
+  // Grupos por Hunting Zone, con su conteo, para el filtro.
+  const conteoGrupos = new Map<string, number>();
+  for (const u of todas) conteoGrupos.set(grupoDe(u), (conteoGrupos.get(grupoDe(u)) ?? 0) + 1);
+  const grupos = [...conteoGrupos.keys()].sort((a, b) => {
+    // Las HZ primero (alfabético); CeCo y "sin HZ" al final.
+    const peso = (g: string): number =>
+      g === "Centros de Costo" ? 1 : g === "Sin Hunting Zone" ? 2 : 0;
+    return peso(a) - peso(b) || a.localeCompare(b, "es");
+  });
+  const grupoActivo = grupos.find((g) => slugGrupo(g) === hzParam) ?? null;
+  const unidades = grupoActivo ? todas.filter((u) => grupoDe(u) === grupoActivo) : todas;
+  const secciones = grupos
+    .filter((g) => !grupoActivo || g === grupoActivo)
+    .map((g) => ({ grupo: g, unidades: unidades.filter((u) => grupoDe(u) === g) }));
 
   // Provisiones ya declaradas por unidad y trimestre: evita pedir dos veces.
   const provisionPedida = new Map(
@@ -96,6 +128,30 @@ export default async function FondosPage() {
           FY {fyEtiqueta(fy)}
         </span>
       </header>
+
+      {grupos.length > 1 && (
+        <nav
+          aria-label="Filtrar por Hunting Zone"
+          className="mt-6 flex flex-wrap items-center gap-2"
+        >
+          <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+            Hunting Zone
+          </span>
+          <Link href="/fondos" aria-current={grupoActivo ? undefined : "page"} className="ui-chip">
+            Todas <span className="ui-chip-n">{todas.length}</span>
+          </Link>
+          {grupos.map((g) => (
+            <Link
+              key={g}
+              href={`/fondos?hz=${encodeURIComponent(slugGrupo(g))}`}
+              aria-current={g === grupoActivo ? "page" : undefined}
+              className="ui-chip"
+            >
+              {g} <span className="ui-chip-n">{conteoGrupos.get(g)}</span>
+            </Link>
+          ))}
+        </nav>
+      )}
 
       <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <article className="ui-kpi">
@@ -233,221 +289,229 @@ export default async function FondosPage() {
         </p>
       )}
 
-      <section className="mt-8">
-        <h2 className="ui-section-title">Por Orden Interna</h2>
+      {unidades.length === 0 ? (
+        <p className="ui-card mt-8 px-4 py-10 text-center text-sm text-[var(--muted)]">
+          No hay movimiento ni presupuesto en {fyEtiqueta(fy)}.
+        </p>
+      ) : (
+        secciones.map(({ grupo, unidades: delGrupo }) => (
+          <section key={grupo} className="mt-8">
+            <h2 className="flex flex-wrap items-baseline gap-x-3 border-b border-[var(--line)] pb-2 text-lg font-bold text-[var(--navy)]">
+              {grupo}
+              <span className="text-sm font-normal text-[var(--muted)]">
+                {delGrupo.length} {delGrupo.length === 1 ? "unidad" : "unidades"} · disponible{" "}
+                {moneda.format(delGrupo.reduce((s, u) => s + u.disponibleHoy, 0))}
+              </span>
+            </h2>
 
-        {unidades.length === 0 ? (
-          <p className="ui-card mt-4 px-4 py-10 text-center text-sm text-[var(--muted)]">
-            No hay movimiento ni presupuesto en {fyEtiqueta(fy)}.
-          </p>
-        ) : (
-          <div className="mt-4 space-y-4">
-            {unidades.map((u) => {
-              const unidadParam = u.idOi ? `oi=${u.idOi}` : `ceco=${u.idCeco}`;
-              const hayMesEnCurso = u.trimestres.some((t) => t.estado === "actual");
+            <div className="mt-4 space-y-4">
+              {delGrupo.map((u) => {
+                const unidadParam = u.idOi ? `oi=${u.idOi}` : `ceco=${u.idCeco}`;
+                const hayMesEnCurso = u.trimestres.some((t) => t.estado === "actual");
 
-              return (
-                <article key={u.clave} className="ui-card overflow-hidden">
-                  <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
-                    <div>
-                      <p className="font-mono text-sm font-bold text-[var(--navy)]">{u.codigo}</p>
-                      <p className="text-xs text-[var(--muted)]">
-                        {u.huntingZone ??
-                          (u.idCeco ? "Centro de Costo" : "Sin Hunting Zone asociada")}
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-5 text-right">
+                return (
+                  <article key={u.clave} className="ui-card overflow-hidden">
+                    <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
                       <div>
-                        <p className="text-[10px] uppercase tracking-wide text-[var(--muted)]">
-                          Disponible hoy
-                        </p>
-                        <p
-                          className="text-lg font-extrabold tabular-nums"
-                          style={{ color: u.disponibleHoy < 0 ? "var(--bad)" : "var(--ink)" }}
-                        >
-                          {moneda.format(u.disponibleHoy)}
+                        <p className="font-mono text-sm font-bold text-[var(--navy)]">{u.codigo}</p>
+                        <p className="text-xs text-[var(--muted)]">
+                          {u.huntingZone ??
+                            (u.idCeco ? "Centro de Costo" : "Sin Hunting Zone asociada")}
                         </p>
                       </div>
-                      {u.retirado > 0 && (
+
+                      <div className="flex flex-wrap items-center gap-5 text-right">
                         <div>
                           <p className="text-[10px] uppercase tracking-wide text-[var(--muted)]">
-                            Retirado
+                            Disponible hoy
                           </p>
-                          <p className="text-lg font-extrabold tabular-nums text-[var(--bad)]">
-                            {moneda.format(u.retirado)}
+                          <p
+                            className="text-lg font-extrabold tabular-nums"
+                            style={{ color: u.disponibleHoy < 0 ? "var(--bad)" : "var(--ink)" }}
+                          >
+                            {moneda.format(u.disponibleHoy)}
                           </p>
                         </div>
-                      )}
-                    </div>
-                  </header>
+                        {u.retirado > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-[var(--muted)]">
+                              Retirado
+                            </p>
+                            <p className="text-lg font-extrabold tabular-nums text-[var(--bad)]">
+                              {moneda.format(u.retirado)}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </header>
 
-                  <div className="overflow-x-auto">
-                    <table className="ui-table min-w-[64rem] text-xs">
-                      <thead>
-                        <tr>
-                          <th>Mes</th>
-                          <th className="r">Plan</th>
-                          <th className="r">Suplementos</th>
-                          <th className="r">Devoluciones</th>
-                          <th className="r">Real (SAP)</th>
-                          <th className="r">Disponible</th>
-                          <th className="r">Pre-registrado</th>
-                        </tr>
-                      </thead>
-                      {u.trimestres.map((t) => {
-                        const provision = provisionPedida.get(`${unidadDe(u)}:${t.trimestre}`);
-                        // La provisión se declara sobre el trimestre en curso o
-                        // sobre uno cerrado al que se le retiró algo. La del Q4
-                        // pasa al Q1 del año fiscal siguiente.
-                        const puedeProvisionar =
-                          !provision &&
-                          puedeSolicitar &&
-                          (t.estado === "actual" || (t.estado === "cerrado" && t.retirado > 0));
-                        const montoProvision = Math.max(
-                          t.estado === "actual" ? t.disponibleFinal : t.retirado,
-                          0,
-                        );
+                    <div className="overflow-x-auto">
+                      <table className="ui-table min-w-[64rem] text-xs">
+                        <thead>
+                          <tr>
+                            <th>Mes</th>
+                            <th className="r">Plan</th>
+                            <th className="r">Suplementos</th>
+                            <th className="r">Devoluciones</th>
+                            <th className="r">Real (SAP)</th>
+                            <th className="r">Disponible</th>
+                            <th className="r">Pre-registrado</th>
+                          </tr>
+                        </thead>
+                        {u.trimestres.map((t) => {
+                          const provision = provisionPedida.get(`${unidadDe(u)}:${t.trimestre}`);
+                          // La provisión se declara sobre el trimestre en curso o
+                          // sobre uno cerrado al que se le retiró algo. La del Q4
+                          // pasa al Q1 del año fiscal siguiente.
+                          const puedeProvisionar =
+                            !provision &&
+                            puedeSolicitar &&
+                            (t.estado === "actual" || (t.estado === "cerrado" && t.retirado > 0));
+                          const montoProvision = Math.max(
+                            t.estado === "actual" ? t.disponibleFinal : t.retirado,
+                            0,
+                          );
 
-                        return (
-                          <tbody key={t.trimestre}>
-                            <tr className="bg-[var(--line-soft)]">
-                              <td colSpan={7} className="font-semibold text-[var(--navy)]">
-                                {etiquetaTrimestre(t.trimestre)}
-                                <span className="ml-2 text-[10px] font-normal uppercase text-[var(--muted)]">
-                                  {ETIQUETA_ESTADO_MES[t.estado]}
-                                </span>
-                                {t.provisionRecibida > 0 && (
-                                  <span className="ml-3 font-normal text-[var(--ok)]">
-                                    + {moneda.format(t.provisionRecibida)} de provisión recibida
+                          return (
+                            <tbody key={t.trimestre}>
+                              <tr className="bg-[var(--line-soft)]">
+                                <td colSpan={7} className="font-semibold text-[var(--navy)]">
+                                  {etiquetaTrimestre(t.trimestre)}
+                                  <span className="ml-2 text-[10px] font-normal uppercase text-[var(--muted)]">
+                                    {ETIQUETA_ESTADO_MES[t.estado]}
                                   </span>
-                                )}
-                              </td>
-                            </tr>
-                            {t.meses.map((m) => (
-                              <tr
-                                key={m.mes}
-                                className={
-                                  m.estado_mes === "actual"
-                                    ? "bg-[rgba(46,117,182,0.06)]"
-                                    : m.estado_mes === "futuro"
-                                      ? "text-[var(--muted)]"
-                                      : undefined
-                                }
-                              >
-                                <td className="whitespace-nowrap">
-                                  <span
-                                    className={
-                                      m.estado_mes === "actual"
-                                        ? "font-bold text-[var(--navy)]"
-                                        : ""
-                                    }
-                                  >
-                                    {nombreMes(m.mes)}
-                                  </span>
-                                  <span className="ml-2 text-[10px] uppercase text-[var(--muted)]">
-                                    {ETIQUETA_ESTADO_MES[m.estado_mes]}
-                                  </span>
-                                </td>
-                                <td className="r">{monto(m.plan)}</td>
-                                <td className="r">{monto(m.suplementos)}</td>
-                                <td className="r">{monto(m.devoluciones)}</td>
-                                <td className="r">{monto(m.monto_real)}</td>
-                                <td className="r font-semibold">
-                                  {m.estado_mes === "futuro" ? (
-                                    "—"
-                                  ) : (
-                                    <span
-                                      style={{
-                                        color: m.disponible < 0 ? "var(--bad)" : "var(--ink)",
-                                      }}
-                                    >
-                                      {moneda.format(m.disponible)}
+                                  {t.provisionRecibida > 0 && (
+                                    <span className="ml-3 font-normal text-[var(--ok)]">
+                                      + {moneda.format(t.provisionRecibida)} de provisión recibida
                                     </span>
                                   )}
                                 </td>
-                                <td className="r">{monto(preregistradoDe(u, m.mes))}</td>
                               </tr>
-                            ))}
-                            {t.estado !== "futuro" && (
-                              <tr>
-                                <td colSpan={7} className="text-[11px] text-[var(--ink-soft)]">
-                                  {t.estado === "cerrado" ? (
-                                    <>
-                                      Cierre: sobraron{" "}
-                                      {moneda.format(Math.max(t.disponibleFinal, 0))}
-                                      {t.provisionSiguiente > 0 &&
-                                        ` · ${moneda.format(t.provisionSiguiente)} provisionados pasan al trimestre siguiente`}
-                                      {" · "}
+                              {t.meses.map((m) => (
+                                <tr
+                                  key={m.mes}
+                                  className={
+                                    m.estado_mes === "actual"
+                                      ? "bg-[rgba(46,117,182,0.06)]"
+                                      : m.estado_mes === "futuro"
+                                        ? "text-[var(--muted)]"
+                                        : undefined
+                                  }
+                                >
+                                  <td className="whitespace-nowrap">
+                                    <span
+                                      className={
+                                        m.estado_mes === "actual"
+                                          ? "font-bold text-[var(--navy)]"
+                                          : ""
+                                      }
+                                    >
+                                      {nombreMes(m.mes)}
+                                    </span>
+                                    <span className="ml-2 text-[10px] uppercase text-[var(--muted)]">
+                                      {ETIQUETA_ESTADO_MES[m.estado_mes]}
+                                    </span>
+                                  </td>
+                                  <td className="r">{monto(m.plan)}</td>
+                                  <td className="r">{monto(m.suplementos)}</td>
+                                  <td className="r">{monto(m.devoluciones)}</td>
+                                  <td className="r">{monto(m.monto_real)}</td>
+                                  <td className="r font-semibold">
+                                    {m.estado_mes === "futuro" ? (
+                                      "—"
+                                    ) : (
                                       <span
-                                        className={
-                                          t.retirado > 0 ? "font-semibold text-[var(--bad)]" : ""
-                                        }
+                                        style={{
+                                          color: m.disponible < 0 ? "var(--bad)" : "var(--ink)",
+                                        }}
                                       >
-                                        retirado {moneda.format(t.retirado)}
+                                        {moneda.format(m.disponible)}
                                       </span>
-                                    </>
-                                  ) : (
-                                    "Al cerrar el trimestre se retira lo que quede, salvo lo declarado como provisión."
-                                  )}
-                                  {provision && (
-                                    <Link
-                                      href={`/solicitudes/${provision.id}`}
-                                      className="ml-2 rounded-full bg-[rgba(46,117,182,0.1)] px-2 py-0.5 text-[10px] font-semibold text-[var(--blue)]"
-                                    >
-                                      provisión {provision.estado}
-                                      {provision.estado === "aprobada" &&
-                                        t.estado === "actual" &&
-                                        " · se aplica al cierre"}
-                                    </Link>
-                                  )}
-                                  {puedeProvisionar && (
-                                    <Link
-                                      href={`/solicitudes/nueva?tipo=provision&${unidadParam}&fy=${fy}&trimestre=${t.trimestre}&monto=${montoProvision.toFixed(2)}`}
-                                      className="ml-2 font-semibold text-[var(--blue)] underline"
-                                    >
-                                      Declarar provisión
-                                    </Link>
-                                  )}
-                                </td>
-                              </tr>
-                            )}
-                          </tbody>
-                        );
-                      })}
-                    </table>
-                  </div>
+                                    )}
+                                  </td>
+                                  <td className="r">{monto(preregistradoDe(u, m.mes))}</td>
+                                </tr>
+                              ))}
+                              {t.estado !== "futuro" && (
+                                <tr>
+                                  <td colSpan={7} className="text-[11px] text-[var(--ink-soft)]">
+                                    {t.estado === "cerrado" ? (
+                                      <>
+                                        Cierre: sobraron{" "}
+                                        {moneda.format(Math.max(t.disponibleFinal, 0))}
+                                        {t.provisionSiguiente > 0 &&
+                                          ` · ${moneda.format(t.provisionSiguiente)} provisionados pasan al trimestre siguiente`}
+                                        {" · "}
+                                        <span
+                                          className={
+                                            t.retirado > 0 ? "font-semibold text-[var(--bad)]" : ""
+                                          }
+                                        >
+                                          retirado {moneda.format(t.retirado)}
+                                        </span>
+                                      </>
+                                    ) : (
+                                      "Al cerrar el trimestre se retira lo que quede, salvo lo declarado como provisión."
+                                    )}
+                                    {provision && (
+                                      <Link
+                                        href={`/solicitudes/${provision.id}`}
+                                        className="ml-2 rounded-full bg-[rgba(46,117,182,0.1)] px-2 py-0.5 text-[10px] font-semibold text-[var(--blue)]"
+                                      >
+                                        provisión {provision.estado}
+                                        {provision.estado === "aprobada" &&
+                                          t.estado === "actual" &&
+                                          " · se aplica al cierre"}
+                                      </Link>
+                                    )}
+                                    {puedeProvisionar && (
+                                      <Link
+                                        href={`/solicitudes/nueva?tipo=provision&${unidadParam}&fy=${fy}&trimestre=${t.trimestre}&monto=${montoProvision.toFixed(2)}`}
+                                        className="ml-2 font-semibold text-[var(--blue)] underline"
+                                      >
+                                        Declarar provisión
+                                      </Link>
+                                    )}
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          );
+                        })}
+                      </table>
+                    </div>
 
-                  {puedeSolicitar && (
-                    <footer className="flex flex-wrap justify-end gap-x-5 gap-y-1 border-t border-[var(--line-soft)] px-4 py-2 text-xs font-semibold text-[var(--blue)]">
-                      {hayMesEnCurso && (
+                    {puedeSolicitar && (
+                      <footer className="flex flex-wrap justify-end gap-x-5 gap-y-1 border-t border-[var(--line-soft)] px-4 py-2 text-xs font-semibold text-[var(--blue)]">
+                        {hayMesEnCurso && (
+                          <Link
+                            href={`/solicitudes/nueva?tipo=ahorro&${unidadParam}&fy=${fy}&mes=${mesActual}`}
+                            className="hover:underline"
+                          >
+                            Declarar ahorro
+                          </Link>
+                        )}
                         <Link
-                          href={`/solicitudes/nueva?tipo=ahorro&${unidadParam}&fy=${fy}&mes=${mesActual}`}
+                          href={`/solicitudes/nueva?tipo=reclasificacion&${unidadParam}&fy=${fy}&mes=${mesActual}`}
                           className="hover:underline"
                         >
-                          Declarar ahorro
+                          Reclasificar a otra orden
                         </Link>
-                      )}
-                      <Link
-                        href={`/solicitudes/nueva?tipo=reclasificacion&${unidadParam}&fy=${fy}&mes=${mesActual}`}
-                        className="hover:underline"
-                      >
-                        Reclasificar a otra orden
-                      </Link>
-                      <Link
-                        href={`/solicitudes/nueva?tipo=extra_plan&${unidadParam}&fy=${fy}`}
-                        className="hover:underline"
-                      >
-                        Solicitar extra plan →
-                      </Link>
-                    </footer>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
+                        <Link
+                          href={`/solicitudes/nueva?tipo=extra_plan&${unidadParam}&fy=${fy}`}
+                          className="hover:underline"
+                        >
+                          Solicitar extra plan →
+                        </Link>
+                      </footer>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        ))
+      )}
     </main>
   );
 }
