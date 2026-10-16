@@ -268,7 +268,9 @@ export function TablaMaestra({
       if (soloEnlace && json.enlace) {
         try {
           await navigator.clipboard.writeText(json.enlace);
-          avisos.exito("Enlace copiado. Envíalo por el medio que prefieras: vence en 24 horas.");
+          avisos.exito(
+            "Enlace copiado. Envíalo cuanto antes: vence según Supabase (por defecto, en 1 hora).",
+          );
         } catch {
           avisos.error("No se pudo copiar al portapapeles.");
         }
